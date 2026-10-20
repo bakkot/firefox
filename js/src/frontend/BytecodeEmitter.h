@@ -716,8 +716,6 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
                                        TaggedParserAtomIndex anonFunctionName);
   [[nodiscard]] bool emitAssignmentRhs(uint8_t offset);
 
-  [[nodiscard]] bool emitPrepareIteratorResult();
-  [[nodiscard]] bool emitFinishIteratorResult(bool done);
 
   // Convert and add `writer` data to stencil.
   // Iff it suceeds, `outIndex` out parameter is initialized to the index of the
@@ -740,7 +738,10 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
 
   [[nodiscard]] bool emitInitialYield(UnaryNode* yieldNode);
   [[nodiscard]] bool emitYield(UnaryNode* yieldNode);
-  [[nodiscard]] bool emitYieldOp(JSOp op);
+  // |yieldsIterResult| is true for the JSOp::Yield of a sync generator's
+  // `yield*`, which yields the inner iterator's result object as-is. Its resume
+  // index is tagged with RESUMEINDEX_ITER_RESULT_TAG.
+  [[nodiscard]] bool emitYieldOp(JSOp op, bool yieldsIterResult = false);
   [[nodiscard]] bool emitYieldStar(ParseNode* iter);
   [[nodiscard]] bool emitAwaitInInnermostScope() {
     return emitAwaitInScope(*innermostEmitterScope());

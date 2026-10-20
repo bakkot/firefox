@@ -10382,9 +10382,12 @@ bool CacheIRCompiler::emitIsSuspendedGeneratorResult(ObjOperandId objId) {
   AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
   Register obj = allocator.useRegister(masm, objId);
 
-  // Test if it's a suspended GeneratorObject.
+  // Test if it's a suspended GeneratorObject from the current realm. Stub code
+  // is shared between realms, so compare against the context's realm.
   Label returnFalse, done;
-  masm.branchIfNotSuspendedGenerator(obj, scratch, obj, &returnFalse);
+  masm.guardObjectHasSameRealm(obj, scratch, &returnFalse);
+  masm.branchIfNotSuspendedGenerator(obj, scratch, obj, /* realm = */ nullptr,
+                                     &returnFalse);
 
   masm.moveValue(BooleanValue(true), output.valueReg());
   masm.jump(&done);

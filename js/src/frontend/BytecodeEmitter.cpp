@@ -1508,44 +1508,6 @@ bool BytecodeEmitter::addObjLiteralData(ObjLiteralWriter& writer,
   return perScriptData().gcThingList().append(objIndex, outIndex);
 }
 
-bool BytecodeEmitter::emitPrepareIteratorResult() {
-  constexpr JSOp op = JSOp::NewObject;
-
-  ObjLiteralWriter writer;
-  writer.beginShape(op);
-
-  writer.setPropNameNoDuplicateCheck(parserAtoms(),
-                                     TaggedParserAtomIndex::WellKnown::value());
-  if (!writer.propWithUndefinedValue(fc)) {
-    return false;
-  }
-  writer.setPropNameNoDuplicateCheck(parserAtoms(),
-                                     TaggedParserAtomIndex::WellKnown::done());
-  if (!writer.propWithUndefinedValue(fc)) {
-    return false;
-  }
-
-  GCThingIndex shape;
-  if (!addObjLiteralData(writer, &shape)) {
-    return false;
-  }
-
-  return emitGCIndexOp(op, shape);
-}
-
-bool BytecodeEmitter::emitFinishIteratorResult(bool done) {
-  if (!emitAtomOp(JSOp::InitProp, TaggedParserAtomIndex::WellKnown::value())) {
-    return false;
-  }
-  if (!emit1(done ? JSOp::True : JSOp::False)) {
-    return false;
-  }
-  if (!emitAtomOp(JSOp::InitProp, TaggedParserAtomIndex::WellKnown::done())) {
-    return false;
-  }
-  return true;
-}
-
 bool BytecodeEmitter::emitGetNameAtLocation(TaggedParserAtomIndex name,
                                             const NameLocation& loc) {
   NameOpEmitter noe(this, name, loc, NameOpEmitter::Kind::Get);
@@ -2135,7 +2097,9 @@ MOZ_NEVER_INLINE bool BytecodeEmitter::emitSwitch(SwitchStatement* switchStmt) {
   return true;
 }
 
-static constexpr size_t MaxResumeIndex = BitMask(24);
+// The top bit of the 24-bit resume index operand is
+// RESUMEINDEX_ITER_RESULT_TAG.
+static constexpr size_t MaxResumeIndex = BitMask(23);
 
 bool BytecodeEmitter::checkResumeIndexLimit() {
   static_assert(
@@ -2224,7 +2188,7 @@ bool BytecodeEmitter::finishResumeOffsets() {
   return true;
 }
 
-bool BytecodeEmitter::emitYieldOp(JSOp op) {
+bool BytecodeEmitter::emitYieldOp(JSOp op, bool yieldsIterResult) {
   // ParseContext::Scope::setOwnStackSlotCount should check the fixed slot
   // for the following, and it should prevent using fixed slot if there are
   // too many bindings:
@@ -2239,6 +2203,7 @@ bool BytecodeEmitter::emitYieldOp(JSOp op) {
 
   MOZ_ASSERT(op == JSOp::InitialYield || op == JSOp::Yield ||
              op == JSOp::Await);
+  MOZ_ASSERT_IF(yieldsIterResult, op == JSOp::Yield);
 
   BytecodeOffset off;
   if (!emitN(op, 3, &off)) {
@@ -2262,6 +2227,10 @@ bool BytecodeEmitter::emitYieldOp(JSOp op) {
       op == JSOp::InitialYield,
       resumeIndex == AbstractGeneratorObject::RESUME_INDEX_INITIAL_YIELD);
 
+  MOZ_ASSERT(!(resumeIndex & RESUMEINDEX_ITER_RESULT_TAG));
+  if (yieldsIterResult) {
+    resumeIndex |= RESUMEINDEX_ITER_RESULT_TAG;
+  }
   SET_RESUMEINDEX(bytecodeSection().code(off), resumeIndex);
 
   BytecodeOffset unusedOffset;
@@ -6775,44 +6744,26 @@ bool BytecodeEmitter::emitYield(UnaryNode* yieldNode) {
   MOZ_ASSERT(sc->asFunctionBox()->isGenerator());
   MOZ_ASSERT(yieldNode->isKind(ParseNodeKind::YieldExpr));
 
-  bool needsIteratorResult = sc->asFunctionBox()->needsIteratorResult();
-  if (needsIteratorResult) {
-    if (!emitPrepareIteratorResult()) {
-      //            [stack] ITEROBJ
-      return false;
-    }
-  }
   if (ParseNode* expr = yieldNode->kid()) {
     if (!emitTree(expr)) {
-      //            [stack] ITEROBJ? VAL
+      //            [stack] VAL
       return false;
     }
   } else {
     if (!emit1(JSOp::Undefined)) {
-      //            [stack] ITEROBJ? UNDEFINED
+      //            [stack] UNDEFINED
       return false;
     }
   }
 
   if (sc->asSuspendableContext()->isAsync()) {
-    MOZ_ASSERT(!needsIteratorResult);
     if (!emitAwaitInInnermostScope()) {
       //            [stack] RESULT
       return false;
     }
   }
 
-  if (needsIteratorResult) {
-    if (!emitFinishIteratorResult(false)) {
-      //            [stack] ITEROBJ
-      return false;
-    }
-  }
-
   if (!emitGetDotGeneratorInInnermostScope()) {
-    //              [stack] # if needsIteratorResult
-    //              [stack] ITEROBJ .GENERATOR
-    //              [stack] # else
     //              [stack] RESULT .GENERATOR
     return false;
   }
@@ -7326,7 +7277,10 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
     //              [stack] NEXT ITER RESULT GENOBJ
     return false;
   }
-  if (!emitYieldOp(JSOp::Yield)) {
+  // Sync generators yield bare values, except here where the inner result
+  // object is yielded as-is.
+  if (!emitYieldOp(JSOp::Yield,
+                   /* yieldsIterResult = */ iterKind == IteratorKind::Sync)) {
     //              [stack] NEXT ITER RVAL RESUMEKIND
     return false;
   }

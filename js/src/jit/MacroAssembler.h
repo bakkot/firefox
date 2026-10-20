@@ -1957,8 +1957,10 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void branchIfObjectNotExtensible(Register obj, Register scratch,
                                    Label* label);
 
+  // If |realm| is null, the caller must check the generator's realm.
   void branchIfNotSuspendedGenerator(Register obj, Register scratch,
-                                     Register spectreRegToZero, Label* label);
+                                     Register spectreRegToZero,
+                                     const void* realm, Label* label);
 
   void branchTestObjectNeedsProxyResultValidation(Condition condition,
                                                   Register obj,

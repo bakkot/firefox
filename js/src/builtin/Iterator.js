@@ -298,7 +298,8 @@ function IteratorHelperReturn() {
   // state is "suspended-start".
   var isSuspendedStart = resumeIndex === GENERATOR_RESUME_INDEX_INITIAL_YIELD;
   assert(
-    !isSuspendedStart || IsSuspendedGenerator(generator),
+    !isSuspendedStart ||
+      (!GeneratorObjectIsClosed(generator) && !GeneratorIsRunning(generator)),
     "unexpected 'suspended-start' state for non-suspended generator"
   );
 

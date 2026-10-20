@@ -42,6 +42,9 @@ class AbstractGeneratorObject : public NativeObject {
   JS_DEFINE_TYPED_SLOT(4, RESUME_INDEX_SLOT, Int32, Null, Undefined);
   static constexpr uint32_t RESERVED_SLOTS = 5;
 
+  static_assert(RESUMEINDEX_ITER_RESULT_TAG ==
+                    GENERATOR_RESUME_INDEX_ITER_RESULT_TAG,
+                "RESUMEINDEX_ITER_RESULT_TAG must match self-hosting define.");
   static_assert(RESUME_INDEX_SLOT.index() == GENERATOR_RESUME_INDEX_SLOT,
                 "RESUME_INDEX_SLOT must match self-hosting define for resume "
                 "index slot.");
@@ -171,7 +174,7 @@ class AbstractGeneratorObject : public NativeObject {
                   getFixedSlotTyped(RESUME_INDEX_SLOT).isUndefined());
     MOZ_ASSERT_IF(JSOp(*pc) != JSOp::InitialYield, isRunning());
 
-    uint32_t resumeIndex = GET_UINT24(pc);
+    uint32_t resumeIndex = GET_TAGGED_RESUMEINDEX(pc);
     MOZ_ASSERT(resumeIndex < uint32_t(RESUME_INDEX_RUNNING));
 
     setFixedSlotTyped(RESUME_INDEX_SLOT, Int32Value(resumeIndex));
@@ -180,7 +183,13 @@ class AbstractGeneratorObject : public NativeObject {
   void setResumeIndex(int32_t resumeIndex) {
     setFixedSlotTyped(RESUME_INDEX_SLOT, Int32Value(resumeIndex));
   }
+  // The resume index, without RESUMEINDEX_ITER_RESULT_TAG.
   uint32_t resumeIndex() const {
+    return taggedResumeIndex() & ~RESUMEINDEX_ITER_RESULT_TAG;
+  }
+  // The resume index as stored, including RESUMEINDEX_ITER_RESULT_TAG if the
+  // generator is suspended at a yield of an iterator result object.
+  int32_t taggedResumeIndex() const {
     MOZ_ASSERT(isSuspended());
     return getFixedSlotTyped(RESUME_INDEX_SLOT).toInt32();
   }

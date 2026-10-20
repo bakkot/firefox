@@ -20765,7 +20765,8 @@ void CodeGenerator::visitIsSuspendedGenerator(LIsSuspendedGenerator* lir) {
   Register scratch = ToRegister(lir->temp0());
 
   Label returnFalse, done;
-  masm.branchIfNotSuspendedGenerator(obj, scratch, obj, &returnFalse);
+  masm.branchIfNotSuspendedGenerator(obj, scratch, obj,
+                                     gen->realm->realmPtr(), &returnFalse);
 
   masm.move32(Imm32(1), output);
   masm.jump(&done);
@@ -20785,6 +20786,7 @@ void CodeGenerator::visitIsSuspendedGeneratorAndBranch(
   MBasicBlock* ifFalse = lir->ifFalse();
 
   masm.branchIfNotSuspendedGenerator(obj, scratch, obj,
+                                     gen->realm->realmPtr(),
                                      getJumpLabelForBranch(ifFalse));
   jumpToBlock(ifTrue);
 }

@@ -2965,7 +2965,7 @@ bool WarpBuilder::buildSuspend(BytecodeLocation loc, MDefinition* gen,
   }
 
   // Update Generator Object state
-  uint32_t resumeIndex = loc.getResumeIndex();
+  uint32_t resumeIndex = loc.getTaggedResumeIndex();
 
   // This store is unbarriered, as it's only ever storing an integer, and as
   // such doesn't partake of object tracing.

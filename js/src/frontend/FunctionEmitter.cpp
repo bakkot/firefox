@@ -564,31 +564,7 @@ bool FunctionScriptEmitter::emitEndBody() {
       return false;
     }
 
-    if (funbox_->needsIteratorResult()) {
-      MOZ_ASSERT(!funbox_->needsPromiseResult());
-      // Emit final yield bytecode for generators, for example:
-      // function gen * () { ... }
-      if (!bce_->emitPrepareIteratorResult()) {
-        //          [stack] RESULT
-        return false;
-      }
-
-      if (!bce_->emit1(JSOp::GetRval)) {
-        //          [stack] RESULT RVAL
-        return false;
-      }
-
-      if (!bce_->emitFinishIteratorResult(true)) {
-        //          [stack] RESULT
-        return false;
-      }
-
-      if (!bce_->emit1(JSOp::SetRval)) {
-        //          [stack]
-        return false;
-      }
-
-    } else if (funbox_->needsPromiseResult()) {
+    if (funbox_->needsPromiseResult()) {
       // Emit final yield bytecode for async functions, for example:
       // async function deferred() { ... }
       if (!bce_->emit1(JSOp::GetRval)) {

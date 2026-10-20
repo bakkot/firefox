@@ -7337,9 +7337,9 @@ AttachDecision InlinableNativeIRGenerator::tryAttachIsSuspendedGenerator() {
   ValOperandId valId = loadArgumentIntrinsic(ArgumentKind::Arg0);
   ObjOperandId objId = writer.guardToObject(valId);
 
-  // Check whether the argument is a suspended generator. We don't need to
-  // guard its class, because IsSuspendedGenerator returns false for objects
-  // that are not generator objects.
+  // Check whether the argument is a suspended generator from the current
+  // realm. We don't need to guard its class or realm, because
+  // IsSuspendedGenerator returns false for other objects.
   writer.isSuspendedGeneratorResult(objId);
 
   trackAttached("IsSuspendedGenerator");

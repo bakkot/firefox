@@ -187,7 +187,19 @@ static const unsigned LOCALNO_LEN = 3;
 static const unsigned LOCALNO_BITS = 24;
 static const uint32_t LOCALNO_LIMIT = 1 << LOCALNO_BITS;
 
+// Bit set in the resume index operand of the JSOp::Yield that a sync generator
+// uses to yield* an inner iterator's result object as-is, rather than a bare
+// value. Suspending stores the operand, tag included, in the generator's
+// resume index slot, so that %GeneratorPrototype% methods can tell the two
+// apart. The tag is masked out wherever the resume index is used as an index.
+static constexpr uint32_t RESUMEINDEX_ITER_RESULT_TAG = 1 << 23;
+
 static inline uint32_t GET_RESUMEINDEX(const jsbytecode* pc) {
+  return GET_UINT24(pc) & ~RESUMEINDEX_ITER_RESULT_TAG;
+}
+
+// The resume index operand including RESUMEINDEX_ITER_RESULT_TAG.
+static inline uint32_t GET_TAGGED_RESUMEINDEX(const jsbytecode* pc) {
   return GET_UINT24(pc);
 }
 

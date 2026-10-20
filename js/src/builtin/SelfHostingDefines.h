@@ -137,6 +137,10 @@
 #define ASYNC_ITERATOR_HELPER_GENERATOR_SLOT 0
 
 #define GENERATOR_RESUME_INDEX_SLOT 4
+// Set in the resume index of a sync generator suspended at a yield of an
+// iterator result object, rather than a bare value (see
+// RESUMEINDEX_ITER_RESULT_TAG).
+#define GENERATOR_RESUME_INDEX_ITER_RESULT_TAG 0x800000
 #define GENERATOR_RESUME_INDEX_INITIAL_YIELD 0
 
 // Control values for Iterator.range
