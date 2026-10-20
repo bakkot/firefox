@@ -285,6 +285,7 @@
   _(IntrinsicNewStringIterator)                    \
   _(IntrinsicNewRegExpStringIterator)              \
   _(IntrinsicArrayIteratorPrototypeOptimizable)    \
+  _(IntrinsicDebuggerObservesNativeCall)           \
                                                    \
   _(IntrinsicGuardToArrayBuffer)                   \
                                                    \

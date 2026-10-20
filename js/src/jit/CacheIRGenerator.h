@@ -912,6 +912,7 @@ class MOZ_RAII InlinableNativeIRGenerator {
   AttachDecision tryAttachNewStringIterator();
   AttachDecision tryAttachNewRegExpStringIterator();
   AttachDecision tryAttachArrayIteratorPrototypeOptimizable();
+  AttachDecision tryAttachDebuggerObservesNativeCall();
   AttachDecision tryAttachObjectCreate();
   AttachDecision tryAttachObjectConstructor();
   AttachDecision tryAttachArrayConstructor();

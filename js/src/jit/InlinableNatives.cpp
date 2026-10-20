@@ -216,6 +216,7 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
     case InlinableNative::IntrinsicRegExpExecForTest:
     case InlinableNative::IntrinsicTypedArrayLength:
     case InlinableNative::IntrinsicArrayIteratorPrototypeOptimizable:
+    case InlinableNative::IntrinsicDebuggerObservesNativeCall:
     case InlinableNative::IntrinsicGuardToAsyncDisposableStack:
     case InlinableNative::IntrinsicGuardToDisposableStack:
       MOZ_CRASH("Unexpected cross-realm intrinsic call");

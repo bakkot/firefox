@@ -6889,6 +6889,10 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
 
   // Step 7 is a loop.
   LoopControl loopInfo(this, StatementKind::YieldStar);
+
+  // In sync generators, normal completions are handled by
+  // GeneratorYieldStarNext, which jumps directly to the yield.
+  JumpList yieldValue;
   if (!loopInfo.emitLoopHead(this, Nothing())) {
     //              [stack] NEXT ITER RECEIVED RESUMEKIND
     return false;
@@ -6919,41 +6923,98 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       return false;
     }
 
-    // Step 7.a.i.
-    // result = iter.next(received)
-    if (!emit2(JSOp::Unpick, 2)) {
-      //            [stack] RECEIVED NEXT ITER
-      return false;
-    }
-    if (!emit1(JSOp::Dup2)) {
-      //            [stack] RECEIVED NEXT ITER NEXT ITER
-      return false;
-    }
-    if (!emit2(JSOp::Pick, 4)) {
-      //            [stack] NEXT ITER NEXT ITER RECEIVED
-      return false;
-    }
-    if (!emitCall(JSOp::Call, 1, iter)) {
-      //            [stack] NEXT ITER RESULT
-      return false;
-    }
+    if (iterKind == IteratorKind::Sync) {
+      // Steps 7.a.i-vii.
+      //
+      // GeneratorYieldStarNext(.generator, iter, next, received) returns the
+      // value to yield, or IterationDoneSentinel.
+      if (!emitAtomOp(
+              JSOp::GetIntrinsic,
+              TaggedParserAtomIndex::WellKnown::GeneratorYieldStarNext())) {
+        //          [stack] NEXT ITER RECEIVED STEP
+        return false;
+      }
+      if (!emit1(JSOp::Undefined)) {
+        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED
+        return false;
+      }
+      if (!emitGetDotGeneratorInInnermostScope()) {
+        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED GENOBJ
+        return false;
+      }
+      if (!emitDupAt(4)) {
+        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED GENOBJ ITER
+        return false;
+      }
+      if (!emitDupAt(6)) {
+        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED GENOBJ ITER NEXT
+        return false;
+      }
+      if (!emit2(JSOp::Pick, 5)) {
+        //          [stack] NEXT ITER STEP UNDEFINED GENOBJ ITER NEXT RECEIVED
+        return false;
+      }
+      if (!emitCall(JSOp::Call, 4, iter)) {
+        //          [stack] NEXT ITER VALUE
+        return false;
+      }
+      if (!emit1(JSOp::Dup)) {
+        //          [stack] NEXT ITER VALUE VALUE
+        return false;
+      }
+      if (!emitAtomOp(
+              JSOp::GetIntrinsic,
+              TaggedParserAtomIndex::WellKnown::IterationDoneSentinel())) {
+        //          [stack] NEXT ITER VALUE VALUE SENTINEL
+        return false;
+      }
+      if (!emit1(JSOp::StrictEq)) {
+        //          [stack] NEXT ITER VALUE DONE
+        return false;
+      }
+      if (!emitJump(JSOp::JumpIfTrue, &loopInfo.breaks)) {
+        //          [stack] NEXT ITER VALUE
+        return false;
+      }
+      if (!emitJump(JSOp::Goto, &yieldValue)) {
+        //          [stack] NEXT ITER VALUE
+        return false;
+      }
+    } else {
+      // Step 7.a.i.
+      // result = iter.next(received)
+      if (!emit2(JSOp::Unpick, 2)) {
+        //          [stack] RECEIVED NEXT ITER
+        return false;
+      }
+      if (!emit1(JSOp::Dup2)) {
+        //          [stack] RECEIVED NEXT ITER NEXT ITER
+        return false;
+      }
+      if (!emit2(JSOp::Pick, 4)) {
+        //          [stack] NEXT ITER NEXT ITER RECEIVED
+        return false;
+      }
+      if (!emitCall(JSOp::Call, 1, iter)) {
+        //          [stack] NEXT ITER RESULT
+        return false;
+      }
 
-    // Step 7.a.ii.
-    if (iterKind == IteratorKind::Async) {
+      // Step 7.a.ii.
       if (!emitAwaitInInnermostScope()) {
+        //          [stack] NEXT ITER RESULT
+        return false;
+      }
+
+      // Step 7.a.iii.
+      if (!emitCheckIsObj(CheckIsObjectKind::IteratorNext)) {
         //          [stack] NEXT ITER RESULT
         return false;
       }
     }
 
-    // Step 7.a.iii.
-    if (!emitCheckIsObj(CheckIsObjectKind::IteratorNext)) {
-      //            [stack] NEXT ITER RESULT
-      return false;
-    }
-
-    // Bytecode for steps 7.a.iv-vii is emitted after the ifKind if-else because
-    // it's shared with other branches.
+    // For async generators, bytecode for steps 7.a.iv-vii is emitted after the
+    // ifKind if-else because it's shared with other branches.
   }
 
   // Step 7.b. Check for Throw completion.
@@ -7291,6 +7352,11 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       //            [stack] NEXT ITER RESULT
       return false;
     }
+
+    if (!emitJumpTargetAndPatch(yieldValue)) {
+      //            [stack] NEXT ITER RESULT
+      return false;
+    }
   }
   if (!emitGetDotGeneratorInInnermostScope()) {
     //              [stack] NEXT ITER RESULT GENOBJ
@@ -7323,9 +7389,89 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
     //              [stack] RESULT
     return false;
   }
-  if (!emitAtomOp(JSOp::GetProp, TaggedParserAtomIndex::WellKnown::value())) {
-    //              [stack] VALUE
-    return false;
+  if (iterKind == IteratorKind::Sync) {
+    // RESULT is IterationDoneSentinel if GeneratorYieldStarNext found the inner
+    // iterator done, in which case it stashed the return value in element 0 of
+    // globalYieldStarReturnValue.
+    if (!emit1(JSOp::Dup)) {
+      //            [stack] RESULT RESULT
+      return false;
+    }
+    if (!emitAtomOp(JSOp::GetIntrinsic,
+                    TaggedParserAtomIndex::WellKnown::IterationDoneSentinel())) {
+      //            [stack] RESULT RESULT SENTINEL
+      return false;
+    }
+    if (!emit1(JSOp::StrictEq)) {
+      //            [stack] RESULT IS_SENTINEL
+      return false;
+    }
+    InternalIfEmitter ifSentinel(this);
+    if (!ifSentinel.emitThenElse()) {
+      //            [stack] RESULT
+      return false;
+    }
+    if (!emit1(JSOp::Pop)) {
+      //            [stack]
+      return false;
+    }
+    if (!emitAtomOp(
+            JSOp::GetIntrinsic,
+            TaggedParserAtomIndex::WellKnown::globalYieldStarReturnValue())) {
+      //            [stack] HOLDER
+      return false;
+    }
+    if (!emit1(JSOp::Dup)) {
+      //            [stack] HOLDER HOLDER
+      return false;
+    }
+    if (!emit1(JSOp::Zero)) {
+      //            [stack] HOLDER HOLDER 0
+      return false;
+    }
+    if (!emitElemOpBase(JSOp::GetElem)) {
+      //            [stack] HOLDER VALUE
+      return false;
+    }
+    if (!emit1(JSOp::Swap)) {
+      //            [stack] VALUE HOLDER
+      return false;
+    }
+    if (!emit1(JSOp::Zero)) {
+      //            [stack] VALUE HOLDER 0
+      return false;
+    }
+    if (!emit1(JSOp::Undefined)) {
+      //            [stack] VALUE HOLDER 0 UNDEFINED
+      return false;
+    }
+    if (!emitElemOpBase(sc->strict() ? JSOp::StrictSetElem : JSOp::SetElem)) {
+      //            [stack] VALUE UNDEFINED
+      return false;
+    }
+    if (!emit1(JSOp::Pop)) {
+      //            [stack] VALUE
+      return false;
+    }
+    if (!ifSentinel.emitElse()) {
+      //            [stack] RESULT
+      return false;
+    }
+    if (!emitAtomOp(JSOp::GetProp,
+                    TaggedParserAtomIndex::WellKnown::value())) {
+      //            [stack] VALUE
+      return false;
+    }
+    if (!ifSentinel.emitEnd()) {
+      //            [stack] VALUE
+      return false;
+    }
+  } else {
+    if (!emitAtomOp(JSOp::GetProp,
+                    TaggedParserAtomIndex::WellKnown::value())) {
+      //            [stack] VALUE
+      return false;
+    }
   }
 
   MOZ_ASSERT(bytecodeSection().stackDepth() == startDepth - 3);

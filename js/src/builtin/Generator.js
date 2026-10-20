@@ -19,6 +19,71 @@ function GeneratorSetYieldedIterResult(gen) {
   UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_ITER_RESULT);
 }
 
+// Unique object returned by GeneratorYieldStarNext to signal completion. Never
+// exposed to content.
+var IterationDoneSentinel = CreateIterationDoneSentinel();
+
+// The inner iterator's return value when GeneratorYieldStarNext returned
+// IterationDoneSentinel, in element 0. Read back and cleared immediately by the
+// `yield*` bytecode (see BytecodeEmitter::emitYieldStar). This must be tenured
+// so that Warp can bake it into compiled code.
+var globalYieldStarReturnValue = CreateTenuredHolder();
+
+// The "next" step of `yield*` in the sync generator |gen|: calls
+// |next| on the inner iterator |iter| with |received|.
+//
+// Returns the value for |gen| to yield and sets |gen|'s result kind to match,
+// or returns IterationDoneSentinel when the inner iterator is done.
+//
+// When |iter| is a suspended same-realm generator using the original
+// GeneratorNext, it is resumed directly and its bare yielded value is passed
+// through. This skips the inner iterator result object, which is unobservable
+// because GeneratorNext would have created a fresh plain object.
+function GeneratorYieldStarNext(gen, iter, next, received) {
+  var result;
+  if (
+    next === GeneratorNext &&
+    IsSuspendedGenerator(iter) &&
+    !DebuggerObservesNativeCall()
+  ) {
+    try {
+      result = resumeGenerator(iter, received, "next");
+    } catch (e) {
+      GeneratorSetClosed(iter);
+      throw e;
+    }
+
+    var kind = UnsafeGetInt32FromReservedSlot(iter, GENERATOR_RESULT_KIND_SLOT);
+    if (kind === GENERATOR_RESULT_KIND_YIELDED) {
+      UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_YIELDED);
+      return result;
+    }
+    if (kind === GENERATOR_RESULT_KIND_RETURNED) {
+      globalYieldStarReturnValue[0] = result;
+      return IterationDoneSentinel;
+    }
+
+    // |iter| itself yielded an inner result object with `yield*`, which must
+    // be passed through as-is.
+    assert(kind === GENERATOR_RESULT_KIND_ITER_RESULT, "unexpected result kind");
+    UnsafeSetReservedSlot(iter, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_YIELDED);
+    assert(IsObject(result), "yield* only yields objects");
+  } else {
+    result = callContentFunction(next, iter, received);
+    if (!IsObject(result)) {
+      ThrowTypeError(JSMSG_ITER_METHOD_RETURNED_PRIMITIVE, "next");
+    }
+  }
+
+  if (result.done) {
+    globalYieldStarReturnValue[0] = result.value;
+    return IterationDoneSentinel;
+  }
+  UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_ITER_RESULT);
+  return result;
+}
+SetIsInlinableLargeFunction(GeneratorYieldStarNext);
+
 function GeneratorNext(val) {
   // Call GeneratorNextSlow for uncommon cases so that GeneratorNext stays small
   // and can be inlined. The IsSuspendedGenerator check is inlined in the JITs.

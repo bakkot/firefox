@@ -654,6 +654,31 @@ static bool intrinsic_ArrayIteratorPrototypeOptimizable(JSContext* cx,
   return true;
 }
 
+static bool intrinsic_CreateTenuredHolder(JSContext* cx, unsigned argc,
+                                          Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() == 0);
+
+  ArrayObject* result = NewDenseFullyAllocatedArray(cx, 1, TenuredObject);
+  if (!result) {
+    return false;
+  }
+  result->setDenseInitializedLength(1);
+  result->initDenseElement(0, UndefinedValue());
+
+  args.rval().setObject(*result);
+  return true;
+}
+
+static bool intrinsic_DebuggerObservesNativeCall(JSContext* cx, unsigned argc,
+                                                 Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() == 0);
+
+  args.rval().setBoolean(cx->realm()->debuggerObservesNativeCall());
+  return true;
+}
+
 static bool intrinsic_GetNextMapEntryForIterator(JSContext* cx, unsigned argc,
                                                  Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -674,6 +699,23 @@ static bool intrinsic_CreateMapIterationResultPair(JSContext* cx, unsigned argc,
   MOZ_ASSERT(args.length() == 0);
 
   JSObject* result = MapIteratorObject::createResultPair(cx);
+  if (!result) {
+    return false;
+  }
+
+  args.rval().setObject(*result);
+  return true;
+}
+
+static bool intrinsic_CreateIterationDoneSentinel(JSContext* cx,
+                                                  unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() == 0);
+
+  // Allocate in the tenured heap so that Warp can bake the sentinel into
+  // compiled code as a constant.
+  JSObject* result =
+      NewPlainObjectWithProto(cx, nullptr, {.newKind = TenuredObject});
   if (!result) {
     return false;
   }
@@ -1580,10 +1622,16 @@ static const JSFunctionSpec intrinsic_functions[] = {
           intrinsic_CopyDataPropertiesUnfiltered, 2, 0),
     JS_FN("CreateAsyncFromSyncIterator", intrinsic_CreateAsyncFromSyncIterator,
           2, 0),
+    JS_FN("CreateIterationDoneSentinel", intrinsic_CreateIterationDoneSentinel,
+          0, 0),
     JS_FN("CreateMapIterationResultPair",
           intrinsic_CreateMapIterationResultPair, 0, 0),
     JS_FN("CreateSetIterationResult", intrinsic_CreateSetIterationResult, 0, 0),
     JS_FN("CreateSuppressedError", intrinsic_CreateSuppressedError, 2, 0),
+    JS_FN("CreateTenuredHolder", intrinsic_CreateTenuredHolder, 0, 0),
+    JS_INLINABLE_FN("DebuggerObservesNativeCall",
+                    intrinsic_DebuggerObservesNativeCall, 0, 0,
+                    IntrinsicDebuggerObservesNativeCall),
     JS_FN("DecompileArg", intrinsic_DecompileArg, 2, 0),
     JS_FN("DefineDataProperty", intrinsic_DefineDataProperty, 4, 0),
     JS_FN("DefineProperty", intrinsic_DefineProperty, 6, 0),
