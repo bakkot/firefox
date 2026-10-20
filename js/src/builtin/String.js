@@ -784,17 +784,30 @@ function StringIteratorNext() {
     );
   }
 
+  // Use a single result object so it can be scalar replaced when inlined.
+  var result = { value: undefined, done: false };
+  var value = StringIteratorStep(obj);
+  if (value === IterationDoneSentinel) {
+    result.done = true;
+  } else {
+    result.value = value;
+  }
+  return result;
+}
+SetIsInlinableLargeFunction(StringIteratorNext);
+
+// Returns the next code point of the string iterator |obj| as a string, or
+// IterationDoneSentinel.
+function StringIteratorStep(obj) {
   var S = UnsafeGetStringFromReservedSlot(obj, ITERATOR_SLOT_TARGET);
   // We know that JSString::MAX_LENGTH <= INT32_MAX (and assert this in
   // SelfHostring.cpp) so our current index can never be anything other than
   // an Int32Value.
   var index = UnsafeGetInt32FromReservedSlot(obj, ITERATOR_SLOT_NEXT_INDEX);
   var size = S.length;
-  var result = { value: undefined, done: false };
 
   if (index >= size) {
-    result.done = true;
-    return result;
+    return IterationDoneSentinel;
   }
 
   var codePoint = callFunction(std_String_codePointAt, S, index);
@@ -802,11 +815,9 @@ function StringIteratorNext() {
 
   UnsafeSetReservedSlot(obj, ITERATOR_SLOT_NEXT_INDEX, index + charCount);
 
-  result.value = callFunction(std_String_fromCodePoint, null, codePoint);
-
-  return result;
+  return callFunction(std_String_fromCodePoint, null, codePoint);
 }
-SetIsInlinableLargeFunction(StringIteratorNext);
+SetIsInlinableLargeFunction(StringIteratorStep);
 
 // ES2018 draft rev 8fadde42cf6a9879b4ab0cb6142b31c4ee501667
 // 21.1.2.4 String.raw ( template, ...substitutions )

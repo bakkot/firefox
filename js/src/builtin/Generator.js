@@ -16,7 +16,9 @@ function GeneratorYieldedIterResult(result) {
   return result;
 }
 
-// Unique objects returned by GeneratorYieldStarNext. Never exposed to content.
+// Unique objects returned by GeneratorYieldStarNext (and, for
+// IterationDoneSentinel, by IteratorStepValue and the *IteratorStep helpers).
+// Never exposed to content.
 var IterationDoneSentinel = CreateUniqueTenuredObject();
 var YieldStarIterResultSentinel = CreateUniqueTenuredObject();
 

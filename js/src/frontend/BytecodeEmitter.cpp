@@ -2942,6 +2942,47 @@ bool BytecodeEmitter::emitIteratorNext(
   return true;
 }
 
+bool BytecodeEmitter::emitSelfHostedIteratorStepValue(
+    const Maybe<uint32_t>& callSourceCoordOffset) {
+  MOZ_ASSERT(emitterMode == BytecodeEmitter::SelfHosting);
+
+  //                [stack] ... NEXT ITER
+  MOZ_ASSERT(bytecodeSection().stackDepth() >= 2);
+
+  if (!emitAtomOp(JSOp::GetIntrinsic,
+                  TaggedParserAtomIndex::WellKnown::IteratorStepValue())) {
+    //              [stack] ... NEXT ITER STEP
+    return false;
+  }
+  if (!emit1(JSOp::Undefined)) {
+    //              [stack] ... NEXT ITER STEP UNDEFINED
+    return false;
+  }
+  if (!emit2(JSOp::Pick, 2)) {
+    //              [stack] ... NEXT STEP UNDEFINED ITER
+    return false;
+  }
+  if (!emit2(JSOp::Pick, 3)) {
+    //              [stack] ... STEP UNDEFINED ITER NEXT
+    return false;
+  }
+  if (!emitCall(JSOp::Call, 2, callSourceCoordOffset)) {
+    //              [stack] ... VALUE
+    return false;
+  }
+  if (!emit1(JSOp::Dup)) {
+    //              [stack] ... VALUE VALUE
+    return false;
+  }
+  if (!emitAtomOp(JSOp::GetIntrinsic,
+                  TaggedParserAtomIndex::WellKnown::IterationDoneSentinel())) {
+    //              [stack] ... VALUE VALUE SENTINEL
+    return false;
+  }
+  return emit1(JSOp::StrictEq);
+  //                [stack] ... VALUE DONE
+}
+
 bool BytecodeEmitter::emitIteratorCloseInScope(EmitterScope& currentScope,
                                                IteratorKind iterKind,
                                                CompletionKind completionKind,
@@ -5769,27 +5810,40 @@ bool BytecodeEmitter::emitSpread(SelfHostedIter selfHostedIter) {
       //            [stack] NEXT ITER ARR I NEXT ITER
       return false;
     }
-    if (!emitIteratorNext(Nothing(), IteratorKind::Sync, selfHostedIter)) {
-      //            [stack] NEXT ITER ARR I RESULT
-      return false;
-    }
-    if (!emit1(JSOp::Dup)) {
-      //            [stack] NEXT ITER ARR I RESULT RESULT
-      return false;
-    }
-    if (!emitAtomOp(JSOp::GetProp, TaggedParserAtomIndex::WellKnown::done())) {
-      //            [stack] NEXT ITER ARR I RESULT DONE
-      return false;
-    }
-    if (!emitJump(JSOp::JumpIfTrue, &loopInfo.breaks)) {
-      //            [stack] NEXT ITER ARR I RESULT
-      return false;
-    }
+    if (emitterMode == BytecodeEmitter::SelfHosting) {
+      if (!emitSelfHostedIteratorStepValue(Nothing())) {
+        //          [stack] NEXT ITER ARR I VALUE DONE
+        return false;
+      }
+      if (!emitJump(JSOp::JumpIfTrue, &loopInfo.breaks)) {
+        //          [stack] NEXT ITER ARR I VALUE
+        return false;
+      }
+    } else {
+      if (!emitIteratorNext(Nothing(), IteratorKind::Sync, selfHostedIter)) {
+        //          [stack] NEXT ITER ARR I RESULT
+        return false;
+      }
+      if (!emit1(JSOp::Dup)) {
+        //          [stack] NEXT ITER ARR I RESULT RESULT
+        return false;
+      }
+      if (!emitAtomOp(JSOp::GetProp,
+                      TaggedParserAtomIndex::WellKnown::done())) {
+        //          [stack] NEXT ITER ARR I RESULT DONE
+        return false;
+      }
+      if (!emitJump(JSOp::JumpIfTrue, &loopInfo.breaks)) {
+        //          [stack] NEXT ITER ARR I RESULT
+        return false;
+      }
 
-    // Emit code to assign result.value to the iteration variable.
-    if (!emitAtomOp(JSOp::GetProp, TaggedParserAtomIndex::WellKnown::value())) {
-      //            [stack] NEXT ITER ARR I VALUE
-      return false;
+      // Emit code to assign result.value to the iteration variable.
+      if (!emitAtomOp(JSOp::GetProp,
+                      TaggedParserAtomIndex::WellKnown::value())) {
+        //          [stack] NEXT ITER ARR I VALUE
+        return false;
+      }
     }
     if (!emit1(JSOp::InitElemInc)) {
       //            [stack] NEXT ITER ARR I

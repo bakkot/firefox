@@ -25,6 +25,54 @@ function IteratorNext(iteratorRecord, value) {
   return result;
 }
 
+// https://tc39.es/ecma262/#sec-iteratorstepvalue
+//
+// Returns the next value, or IterationDoneSentinel when the iterator is done.
+// |iterator| must be an object.
+// When |nextMethod| is the original `next` of a built-in iterator, the
+// iterator is advanced directly without allocating an iterator result object.
+// This is unobservable because the original `next` methods return fresh plain
+// objects with data properties.
+//
+// The fast paths are disabled while the debugger observes native calls, because
+// self-hosted `next` functions are reported to the onNativeCall hook.
+//
+// Self-hosted sync for-of loops call this function; see ForOfEmitter.
+function IteratorStepValue(iterator, nextMethod) {
+  assert(IsObject(iterator), "iterator is an object");
+
+  var obj;
+  if (DebuggerObservesNativeCall()) {
+    // Call |nextMethod| so the onNativeCall hook is invoked.
+  } else if (nextMethod === ArrayIteratorNext) {
+    if ((obj = GuardToArrayIterator(iterator)) !== null) {
+      return ArrayIteratorStep(obj);
+    }
+  } else if (nextMethod === MapIteratorNext) {
+    if ((obj = GuardToMapIterator(iterator)) !== null) {
+      return MapIteratorStep(obj);
+    }
+  } else if (nextMethod === SetIteratorNext) {
+    if ((obj = GuardToSetIterator(iterator)) !== null) {
+      return SetIteratorStep(obj);
+    }
+  } else if (nextMethod === StringIteratorNext) {
+    if ((obj = GuardToStringIterator(iterator)) !== null) {
+      return StringIteratorStep(obj);
+    }
+  }
+
+  var result = callContentFunction(nextMethod, iterator);
+  if (!IsObject(result)) {
+    ThrowTypeError(JSMSG_ITER_METHOD_RETURNED_PRIMITIVE, "next");
+  }
+  if (result.done) {
+    return IterationDoneSentinel;
+  }
+  return result.value;
+}
+SetIsInlinableLargeFunction(IteratorStepValue);
+
 // https://tc39.es/ecma262/#sec-getiterator
 function GetIterator(obj, isAsync, method) {
   // Step 1. If hint is not present, set hint to sync.
@@ -1495,13 +1543,10 @@ function* IteratorZipGenerator(iters, nextMethods, mode, padding, keys) {
         // Steps 3.b.iii.3.a-c.
         try {
           // Step 3.b.iii.3.a.
-          var iterResult = callContentFunction(nextMethod, iter);
-          if (!IsObject(iterResult)) {
-            ThrowTypeError(JSMSG_ITER_METHOD_RETURNED_PRIMITIVE, "next");
-          }
-          var done = !!iterResult.done;
+          var value = IteratorStepValue(iter, nextMethod);
+          var done = value === IterationDoneSentinel;
           if (!done) {
-            result = iterResult.value;
+            result = value;
           }
         } catch (e) {
           // Step 3.b.iii.3.b.i.

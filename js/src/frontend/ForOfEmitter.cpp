@@ -137,43 +137,67 @@ bool ForOfEmitter::emitInitialize(uint32_t forPos) {
     return false;
   }
 
-  if (!bce_->emit1(JSOp::Dup2)) {
-    //              [stack] NEXT ITER NEXT ITER
-    return false;
-  }
+  if (bce_->emitterMode == BytecodeEmitter::SelfHosting &&
+      iterKind_ == IteratorKind::Sync) {
+    if (!bce_->emit1(JSOp::Dup2)) {
+      //            [stack] NEXT ITER NEXT ITER
+      return false;
+    }
 
-  if (!bce_->emitIteratorNext(mozilla::Some(forPos), iterKind_,
-                              selfHostedIter_)) {
-    //              [stack] NEXT ITER RESULT
-    return false;
-  }
+    // Self-hosted code steps the iterator with the IteratorStepValue
+    // intrinsic, which avoids allocating iterator result objects for built-in
+    // iterators.
+    if (!bce_->emitSelfHostedIteratorStepValue(mozilla::Some(forPos))) {
+      //            [stack] NEXT ITER VALUE DONE
+      return false;
+    }
 
-  if (!bce_->emit1(JSOp::Dup)) {
-    //              [stack] NEXT ITER RESULT RESULT
-    return false;
-  }
-  if (!bce_->emitAtomOp(JSOp::GetProp,
-                        TaggedParserAtomIndex::WellKnown::done())) {
-    //              [stack] NEXT ITER RESULT DONE
-    return false;
-  }
+    // if (done) break;
+    MOZ_ASSERT(bce_->innermostNestableControl == loopInfo_.ptr(),
+               "must be at the top-level of the loop");
+    if (!bce_->emitJump(JSOp::JumpIfTrue, &loopInfo_->breaks)) {
+      //            [stack] NEXT ITER VALUE
+      return false;
+    }
+  } else {
+    if (!bce_->emit1(JSOp::Dup2)) {
+      //            [stack] NEXT ITER NEXT ITER
+      return false;
+    }
 
-  // if (done) break;
-  MOZ_ASSERT(bce_->innermostNestableControl == loopInfo_.ptr(),
-             "must be at the top-level of the loop");
-  if (!bce_->emitJump(JSOp::JumpIfTrue, &loopInfo_->breaks)) {
-    //              [stack] NEXT ITER RESULT
-    return false;
-  }
+    if (!bce_->emitIteratorNext(mozilla::Some(forPos), iterKind_,
+                                selfHostedIter_)) {
+      //            [stack] NEXT ITER RESULT
+      return false;
+    }
 
-  // Emit code to assign result.value to the iteration variable.
-  //
-  // Note that ES 13.7.5.13, step 5.c says getting result.value does not
-  // call IteratorClose, so start the try-block below after the GetProp.
-  if (!bce_->emitAtomOp(JSOp::GetProp,
-                        TaggedParserAtomIndex::WellKnown::value())) {
-    //              [stack] NEXT ITER VALUE
-    return false;
+    if (!bce_->emit1(JSOp::Dup)) {
+      //            [stack] NEXT ITER RESULT RESULT
+      return false;
+    }
+    if (!bce_->emitAtomOp(JSOp::GetProp,
+                          TaggedParserAtomIndex::WellKnown::done())) {
+      //            [stack] NEXT ITER RESULT DONE
+      return false;
+    }
+
+    // if (done) break;
+    MOZ_ASSERT(bce_->innermostNestableControl == loopInfo_.ptr(),
+               "must be at the top-level of the loop");
+    if (!bce_->emitJump(JSOp::JumpIfTrue, &loopInfo_->breaks)) {
+      //            [stack] NEXT ITER RESULT
+      return false;
+    }
+
+    // Emit code to assign result.value to the iteration variable.
+    //
+    // Note that ES 13.7.5.13, step 5.c says getting result.value does not
+    // call IteratorClose, so start the try-block below after the GetProp.
+    if (!bce_->emitAtomOp(JSOp::GetProp,
+                          TaggedParserAtomIndex::WellKnown::value())) {
+      //            [stack] NEXT ITER VALUE
+      return false;
+    }
   }
 
   if (!loopInfo_->emitBeginCodeNeedingIteratorClose(bce_)) {

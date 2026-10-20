@@ -588,7 +588,67 @@ function ArrayIteratorNext() {
   return result;
 }
 // We want to inline this to do scalar replacement of the result object.
+// This intentionally doesn't call ArrayIteratorStep: the extra level of
+// inlining makes user-code spread over array iterators measurably slower.
 SetIsInlinableLargeFunction(ArrayIteratorNext);
+
+// Steps 4-16 of %ArrayIteratorPrototype%.next. Returns the next value, or
+// IterationDoneSentinel.
+function ArrayIteratorStep(obj) {
+  // Step 4.
+  var a = UnsafeGetReservedSlot(obj, ITERATOR_SLOT_TARGET);
+
+  // Step 5.
+  if (a === null) {
+    return IterationDoneSentinel;
+  }
+
+  // Step 6.
+  // The index might not be an integer, so we have to do a generic get here.
+  var index = UnsafeGetReservedSlot(obj, ITERATOR_SLOT_NEXT_INDEX);
+
+  // Step 7.
+  var itemKind = UnsafeGetInt32FromReservedSlot(obj, ARRAY_ITERATOR_SLOT_ITEM_KIND);
+
+  // Step 8-9.
+  var len;
+  if (IsPossiblyWrappedTypedArray(a)) {
+    len = PossiblyWrappedTypedArrayLength(a);
+
+    // If the length is non-zero, the buffer can't be detached.
+    if (len === 0) {
+      if (PossiblyWrappedTypedArrayHasDetachedBuffer(a)) {
+        ThrowTypeError(JSMSG_TYPED_ARRAY_DETACHED);
+      }
+    }
+  } else {
+    len = ToLength(a.length);
+  }
+
+  // Step 10.
+  if (index >= len) {
+    UnsafeSetReservedSlot(obj, ITERATOR_SLOT_TARGET, null);
+    return IterationDoneSentinel;
+  }
+
+  // Step 11.
+  UnsafeSetReservedSlot(obj, ITERATOR_SLOT_NEXT_INDEX, index + 1);
+
+  // Step 16.
+  if (itemKind === ITEM_KIND_VALUE) {
+    return a[index];
+  }
+
+  // Step 13.
+  if (itemKind === ITEM_KIND_KEY_AND_VALUE) {
+    return [index, a[index]];
+  }
+
+  // Step 12.
+  assert(itemKind === ITEM_KIND_KEY, itemKind);
+  return index;
+}
+SetIsInlinableLargeFunction(ArrayIteratorStep);
 
 // Uncloned functions with `$` prefix are allocated as extended function
 // to store the original name in `SetCanonicalName`.
