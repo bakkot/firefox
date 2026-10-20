@@ -12319,6 +12319,24 @@ InlinableNativeIRGenerator::tryAttachArrayIteratorPrototypeOptimizable() {
   return AttachDecision::Attach;
 }
 
+AttachDecision InlinableNativeIRGenerator::tryAttachDebuggerObservesNativeCall() {
+  // Self-hosted code calls this without any arguments
+  MOZ_ASSERT(argsLength() == 0);
+
+  // JIT execution is disabled while the debugger observes native calls, and
+  // JIT code doesn't call the onNativeCall hook anyway.
+
+  // Initialize the input operand.
+  initializeInputOperand();
+
+  // Note: we don't need to call emitNativeCalleeGuard for intrinsics.
+
+  writer.loadBooleanResult(false);
+
+  trackAttached("DebuggerObservesNativeCall");
+  return AttachDecision::Attach;
+}
+
 AttachDecision InlinableNativeIRGenerator::tryAttachObjectCreate() {
   // Need a single object-or-null argument.
   if (argsLength() != 1 || !arg(0).isObjectOrNull()) {
@@ -13435,6 +13453,8 @@ AttachDecision InlinableNativeIRGenerator::tryAttachStub() {
       return tryAttachNewRegExpStringIterator();
     case InlinableNative::IntrinsicArrayIteratorPrototypeOptimizable:
       return tryAttachArrayIteratorPrototypeOptimizable();
+    case InlinableNative::IntrinsicDebuggerObservesNativeCall:
+      return tryAttachDebuggerObservesNativeCall();
 
     // RegExp natives.
     case InlinableNative::RegExpDotAll:
