@@ -106,6 +106,42 @@ function GeneratorNext(val) {
 }
 SetIsInlinableLargeFunction(GeneratorNext);
 
+// Resumes the suspended same-realm generator |gen| like GeneratorNext, but
+// returns the yielded value, or IterationDoneSentinel when the generator is
+// done, instead of an iterator result object.
+function GeneratorStep(gen) {
+  assert(IsSuspendedGenerator(gen), "gen is a suspended generator");
+
+  var result;
+  try {
+    result = resumeGenerator(gen, undefined, "next");
+  } catch (e) {
+    GeneratorSetClosed(gen);
+    throw e;
+  }
+
+  var resumeIndex = UnsafeGetReservedSlot(gen, GENERATOR_RESUME_INDEX_SLOT);
+  if (resumeIndex === null) {
+    return IterationDoneSentinel;
+  }
+  if (resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    return GeneratorStepYieldedIterResult(result);
+  }
+  return result;
+}
+SetIsInlinableLargeFunction(GeneratorStep);
+
+// `yield*` yielded the inner iterator's result object, which GeneratorNext
+// would have returned as-is. Read `done` and `value` from it as the caller of
+// GeneratorNext would.
+function GeneratorStepYieldedIterResult(result) {
+  assert(IsObject(result), "yield* only yields objects");
+  if (result.done) {
+    return IterationDoneSentinel;
+  }
+  return result.value;
+}
+
 function GeneratorNextSlow(val) {
   if (!IsObject(this) || !IsGeneratorObject(this)) {
     return callFunction(CallGeneratorMethodIfWrapped, this, val, "GeneratorNext");
