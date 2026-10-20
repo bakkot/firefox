@@ -1115,9 +1115,11 @@ bool jit::EliminateRedundantShapeGuards(MIRGraph& graph) {
         if (!ShapeGuardIsRedundant(guard, allocateObject, allocate->shape())) {
           continue;
         }
-      } else if (lastStore->isStart()) {
-        // The guard doesn't depend on any other instruction that is modifying
-        // the object operand, so we check the object operand directly.
+      } else if (lastStore->isStart() ||
+                 lastStore->dominates(guard->object()->skipObjectGuards())) {
+        // The guard doesn't depend on any instruction that could have modified
+        // the object operand since it was created, so we check the object
+        // operand directly.
         auto* obj = guard->object()->skipObjectGuards();
 
         const Shape* initialShape = nullptr;
@@ -1185,8 +1187,17 @@ static void TryEliminateGCBarriersForAllocation(MInstruction* allocation) {
       case MDefinition::Opcode::Constant:
       case MDefinition::Opcode::Box:
       case MDefinition::Opcode::Unbox:
+      case MDefinition::Opcode::AssertShape:
         // These instructions can't trigger GC or affect this analysis in other
         // ways.
+        break;
+      case MDefinition::Opcode::Compare:
+        // Int32 and Boolean comparisons can't trigger GC.
+        if (ins->toCompare()->compareType() != MCompare::Compare_Int32) {
+          JitSpew(JitSpew_RedundantGCBarriers,
+                  "Stopped at unsupported Compare");
+          return;
+        }
         break;
       case MDefinition::Opcode::StoreFixedSlot: {
         auto* store = ins->toStoreFixedSlot();
@@ -1229,10 +1240,15 @@ bool jit::EliminateRedundantGCBarriers(MIRGraph& graph) {
     for (MInstructionIterator insIter(block->begin()); insIter != block->end();
          insIter++) {
       MInstruction* ins = *insIter;
+      // We can only eliminate the post barrier if we know the object will be
+      // allocated in the nursery.
       if (ins->isNewCallObject()) {
         MNewCallObject* allocation = ins->toNewCallObject();
-        // We can only eliminate the post barrier if we know the call object
-        // will be allocated in the nursery.
+        if (allocation->initialHeap() == gc::Heap::Default) {
+          TryEliminateGCBarriersForAllocation(allocation);
+        }
+      } else if (ins->isNewPlainObject()) {
+        MNewPlainObject* allocation = ins->toNewPlainObject();
         if (allocation->initialHeap() == gc::Heap::Default) {
           TryEliminateGCBarriersForAllocation(allocation);
         }
