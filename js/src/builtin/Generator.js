@@ -19,8 +19,8 @@ function GeneratorSetYieldedIterResult(gen) {
   UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_ITER_RESULT);
 }
 
-// Unique object returned by GeneratorYieldStarNext to signal completion. Never
-// exposed to content.
+// Unique object returned by GeneratorYieldStarNext, IteratorStepValue and the
+// *IteratorStep helpers to signal completion. Never exposed to content.
 var IterationDoneSentinel = CreateIterationDoneSentinel();
 
 // The inner iterator's return value when GeneratorYieldStarNext returned

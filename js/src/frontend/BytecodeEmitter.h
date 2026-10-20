@@ -847,6 +847,12 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
   [[nodiscard]] bool emitIteratorNext(
       const mozilla::Maybe<uint32_t>& callSourceCoordOffset, IteratorKind kind,
       SelfHostedIter selfHostedIter);
+
+  // Self-hosted code only. Pops NEXT ITER from the top of the stack and steps
+  // the iterator with the IteratorStepValue intrinsic. Pushes the value (or
+  // IterationDoneSentinel) and whether the iterator is done.
+  [[nodiscard]] bool emitSelfHostedIteratorStepValue(
+      const mozilla::Maybe<uint32_t>& callSourceCoordOffset);
   [[nodiscard]] bool emitIteratorCloseInScope(EmitterScope& currentScope,
                                               IteratorKind iterKind,
                                               CompletionKind completionKind,

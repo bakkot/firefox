@@ -1092,16 +1092,13 @@ function IterableToList(items, method) {
   var i = 0;
   while (true) {
     // Step 4.a.
-    var next = callContentFunction(nextMethod, iterator);
-    if (!IsObject(next)) {
-      ThrowTypeError(JSMSG_ITER_METHOD_RETURNED_PRIMITIVE, "next");
-    }
+    var next = IteratorStepValue(iterator, nextMethod);
 
     // Step 4.b.
-    if (next.done) {
+    if (next === IterationDoneSentinel) {
       break;
     }
-    DefineDataProperty(values, i++, next.value);
+    DefineDataProperty(values, i++, next);
   }
 
   // Step 5.

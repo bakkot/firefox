@@ -86,39 +86,51 @@ function SetIteratorNext() {
     );
   }
 
+  // Use a single result object so it can be scalar replaced when inlined.
+  var result = { value: undefined, done: false };
+  var value = SetIteratorStep(O);
+  if (value === IterationDoneSentinel) {
+    result.done = true;
+  } else {
+    result.value = value;
+  }
+  return result;
+}
+
+// Steps 4-12 of %SetIteratorPrototype%.next. Returns the next value, or
+// IterationDoneSentinel.
+function SetIteratorStep(O) {
   // Steps 4-5 (implemented in GetNextSetEntryForIterator).
   // Steps 8-9 (omitted).
 
   var setIterationResult = globalSetIterationResult;
 
-  var retVal = { value: undefined, done: true };
-
   // Steps 10.a, 11.
   var done = GetNextSetEntryForIterator(O, setIterationResult);
-  if (!done) {
-    // Steps 10.b-c (omitted).
-
-    // Step 6.
-    var itemKind = UnsafeGetInt32FromReservedSlot(O, MAP_SET_ITERATOR_SLOT_ITEM_KIND);
-
-    var result;
-    if (itemKind === ITEM_KIND_VALUE) {
-      // Step 10.d.i.
-      result = setIterationResult[0];
-    } else {
-      // Step 10.d.ii.
-      assert(itemKind === ITEM_KIND_KEY_AND_VALUE, itemKind);
-      result = [setIterationResult[0], setIterationResult[0]];
-    }
-
-    setIterationResult[0] = null;
-    retVal.value = result;
-    retVal.done = false;
+  if (done) {
+    // Steps 7, 12.
+    return IterationDoneSentinel;
   }
 
-  // Steps 7, 10.d, 12.
-  return retVal;
+  // Steps 10.b-c (omitted).
+
+  // Step 6.
+  var itemKind = UnsafeGetInt32FromReservedSlot(O, MAP_SET_ITERATOR_SLOT_ITEM_KIND);
+
+  var result;
+  if (itemKind === ITEM_KIND_VALUE) {
+    // Step 10.d.i.
+    result = setIterationResult[0];
+  } else {
+    // Step 10.d.ii.
+    assert(itemKind === ITEM_KIND_KEY_AND_VALUE, itemKind);
+    result = [setIterationResult[0], setIterationResult[0]];
+  }
+
+  setIterationResult[0] = null;
+  return result;
 }
+SetIsInlinableLargeFunction(SetIteratorStep);
 
 // GetSetRecord ( obj )
 //

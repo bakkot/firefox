@@ -85,43 +85,55 @@ function MapIteratorNext() {
     );
   }
 
+  // Use a single result object so it can be scalar replaced when inlined.
+  var result = { value: undefined, done: false };
+  var value = MapIteratorStep(O);
+  if (value === IterationDoneSentinel) {
+    result.done = true;
+  } else {
+    result.value = value;
+  }
+  return result;
+}
+
+// Steps 4-12 of %MapIteratorPrototype%.next. Returns the next value, or
+// IterationDoneSentinel.
+function MapIteratorStep(O) {
   // Steps 4-5 (implemented in GetNextMapEntryForIterator).
   // Steps 8-9 (omitted).
 
   var mapIterationResultPair = globalMapIterationResultPair;
 
-  var retVal = { value: undefined, done: true };
-
   // Step 10.a, 11.
   var done = GetNextMapEntryForIterator(O, mapIterationResultPair);
-  if (!done) {
-    // Steps 10.b-c (omitted).
-
-    // Step 6.
-    var itemKind = UnsafeGetInt32FromReservedSlot(O, MAP_SET_ITERATOR_SLOT_ITEM_KIND);
-
-    var result;
-    if (itemKind === ITEM_KIND_KEY) {
-      // Step 10.d.i.
-      result = mapIterationResultPair[0];
-    } else if (itemKind === ITEM_KIND_VALUE) {
-      // Step 10.d.ii.
-      result = mapIterationResultPair[1];
-    } else {
-      // Step 10.d.iii.
-      assert(itemKind === ITEM_KIND_KEY_AND_VALUE, itemKind);
-      result = [mapIterationResultPair[0], mapIterationResultPair[1]];
-    }
-
-    mapIterationResultPair[0] = null;
-    mapIterationResultPair[1] = null;
-    retVal.value = result;
-    retVal.done = false;
+  if (done) {
+    // Steps 7, 12.
+    return IterationDoneSentinel;
   }
 
-  // Steps 7, 12.
-  return retVal;
+  // Steps 10.b-c (omitted).
+
+  // Step 6.
+  var itemKind = UnsafeGetInt32FromReservedSlot(O, MAP_SET_ITERATOR_SLOT_ITEM_KIND);
+
+  var result;
+  if (itemKind === ITEM_KIND_KEY) {
+    // Step 10.d.i.
+    result = mapIterationResultPair[0];
+  } else if (itemKind === ITEM_KIND_VALUE) {
+    // Step 10.d.ii.
+    result = mapIterationResultPair[1];
+  } else {
+    // Step 10.d.iii.
+    assert(itemKind === ITEM_KIND_KEY_AND_VALUE, itemKind);
+    result = [mapIterationResultPair[0], mapIterationResultPair[1]];
+  }
+
+  mapIterationResultPair[0] = null;
+  mapIterationResultPair[1] = null;
+  return result;
 }
+SetIsInlinableLargeFunction(MapIteratorStep);
 
 // ES6 final draft 23.1.2.2.
 // Uncloned functions with `$` prefix are allocated as extended function
