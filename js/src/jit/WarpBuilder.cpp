@@ -2825,7 +2825,9 @@ bool WarpBuilder::build_FinalYieldRval(BytecodeLocation loc) {
   setSlotNull(AbstractGeneratorObject::envChainSlot());
   setSlotNull(AbstractGeneratorObject::argsObjectSlot());
   setSlotNull(AbstractGeneratorObject::stackStorageSlot());
-  setSlotNull(AbstractGeneratorObject::resumeIndexSlot());
+  current->add(MStoreFixedSlot::NewNoPreBarrier(
+      alloc(), gen, AbstractGeneratorObject::resumeIndexSlot(),
+      constant(Int32Value(AbstractGeneratorObject::RESUME_INDEX_CLOSED))));
 
   // Return
   return build_RetRval(loc);

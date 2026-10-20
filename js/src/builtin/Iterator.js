@@ -347,9 +347,7 @@ function IteratorHelperReturn() {
   var generator = UnsafeGetReservedSlot(O, ITERATOR_HELPER_GENERATOR_SLOT);
   var resumeIndex = UnsafeGetReservedSlot(generator, GENERATOR_RESUME_INDEX_SLOT);
   assert(
-    resumeIndex === undefined ||
-      resumeIndex === null ||
-      typeof resumeIndex === "number",
+    resumeIndex === undefined || typeof resumeIndex === "number",
     "unexpected resumeIndex value"
   );
 

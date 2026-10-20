@@ -6221,12 +6221,12 @@ void MacroAssembler::branchIfNotSuspendedGenerator(Register obj,
     spectreZeroRegister(Assembler::NotEqual, scratch, spectreRegToZero);
   }
 
-  // If the resumeIndex slot holds an int32 value < RESUME_INDEX_RUNNING, the
+  // If the resumeIndex slot holds an int32 value < RESUME_INDEX_CLOSED, the
   // generator is suspended.
   Address addr(obj, AbstractGeneratorObject::offsetOfResumeIndexSlot());
   fallibleUnboxInt32(addr, scratch, label);
   branch32(Assembler::AboveOrEqual, scratch,
-           Imm32(AbstractGeneratorObject::RESUME_INDEX_RUNNING), label);
+           Imm32(AbstractGeneratorObject::RESUME_INDEX_CLOSED), label);
 }
 
 void MacroAssembler::branchTestObjectNeedsProxyResultValidation(
