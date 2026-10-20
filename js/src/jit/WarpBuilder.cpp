@@ -2827,13 +2827,6 @@ bool WarpBuilder::build_FinalYieldRval(BytecodeLocation loc) {
   setSlotNull(AbstractGeneratorObject::stackStorageSlot());
   setSlotNull(AbstractGeneratorObject::resumeIndexSlot());
 
-  if (script_->isGenerator() && !script_->isAsync()) {
-    auto* ins = MStoreFixedSlot::NewNoPreBarrier(
-        alloc(), gen, GeneratorObject::resultKindSlot(),
-        constant(Int32Value(int32_t(GeneratorObject::ResultKind::Returned))));
-    current->add(ins);
-  }
-
   // Return
   return build_RetRval(loc);
 }
@@ -2972,7 +2965,7 @@ bool WarpBuilder::buildSuspend(BytecodeLocation loc, MDefinition* gen,
   }
 
   // Update Generator Object state
-  uint32_t resumeIndex = loc.getResumeIndex();
+  uint32_t resumeIndex = loc.getTaggedResumeIndex();
 
   // This store is unbarriered, as it's only ever storing an integer, and as
   // such doesn't partake of object tracing.

@@ -2097,7 +2097,9 @@ MOZ_NEVER_INLINE bool BytecodeEmitter::emitSwitch(SwitchStatement* switchStmt) {
   return true;
 }
 
-static constexpr size_t MaxResumeIndex = BitMask(24);
+// The top bit of the 24-bit resume index operand is
+// RESUMEINDEX_ITER_RESULT_TAG.
+static constexpr size_t MaxResumeIndex = BitMask(23);
 
 bool BytecodeEmitter::checkResumeIndexLimit() {
   static_assert(
@@ -2186,7 +2188,7 @@ bool BytecodeEmitter::finishResumeOffsets() {
   return true;
 }
 
-bool BytecodeEmitter::emitYieldOp(JSOp op) {
+bool BytecodeEmitter::emitYieldOp(JSOp op, bool yieldsIterResult) {
   // ParseContext::Scope::setOwnStackSlotCount should check the fixed slot
   // for the following, and it should prevent using fixed slot if there are
   // too many bindings:
@@ -2201,6 +2203,7 @@ bool BytecodeEmitter::emitYieldOp(JSOp op) {
 
   MOZ_ASSERT(op == JSOp::InitialYield || op == JSOp::Yield ||
              op == JSOp::Await);
+  MOZ_ASSERT_IF(yieldsIterResult, op == JSOp::Yield);
 
   BytecodeOffset off;
   if (!emitN(op, 3, &off)) {
@@ -2224,6 +2227,10 @@ bool BytecodeEmitter::emitYieldOp(JSOp op) {
       op == JSOp::InitialYield,
       resumeIndex == AbstractGeneratorObject::RESUME_INDEX_INITIAL_YIELD);
 
+  MOZ_ASSERT(!(resumeIndex & RESUMEINDEX_ITER_RESULT_TAG));
+  if (yieldsIterResult) {
+    resumeIndex |= RESUMEINDEX_ITER_RESULT_TAG;
+  }
   SET_RESUMEINDEX(bytecodeSection().code(off), resumeIndex);
 
   BytecodeOffset unusedOffset;
@@ -6910,6 +6917,51 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
   IteratorKind iterKind = sc->asSuspendableContext()->isAsync()
                               ? IteratorKind::Async
                               : IteratorKind::Sync;
+  // Sync generators step the inner iterator with GeneratorYieldStarNext, which
+  // can return a sentinel along with a value in globalYieldStarStash. Pop the
+  // sentinel, then read and clear the stash.
+  auto emitTakeYieldStarStash = [this]() {
+    if (!emit1(JSOp::Pop)) {
+      //            [stack] ...
+      return false;
+    }
+    if (!emitAtomOp(JSOp::GetIntrinsic,
+                    TaggedParserAtomIndex::WellKnown::globalYieldStarStash())) {
+      //            [stack] ... STASH
+      return false;
+    }
+    if (!emit1(JSOp::Dup)) {
+      //            [stack] ... STASH STASH
+      return false;
+    }
+    if (!emit1(JSOp::Zero)) {
+      //            [stack] ... STASH STASH 0
+      return false;
+    }
+    if (!emitElemOpBase(JSOp::GetElem)) {
+      //            [stack] ... STASH VALUE
+      return false;
+    }
+    if (!emit1(JSOp::Swap)) {
+      //            [stack] ... VALUE STASH
+      return false;
+    }
+    if (!emit1(JSOp::Zero)) {
+      //            [stack] ... VALUE STASH 0
+      return false;
+    }
+    if (!emit1(JSOp::Undefined)) {
+      //            [stack] ... VALUE STASH 0 UNDEFINED
+      return false;
+    }
+    if (!emitElemOpBase(sc->strict() ? JSOp::StrictSetElem : JSOp::SetElem)) {
+      //            [stack] ... VALUE UNDEFINED
+      return false;
+    }
+    return emit1(JSOp::Pop);
+    //              [stack] ... VALUE
+  };
+
   // Steps 2-5.
   if (!emitTree(iter)) {
     //              [stack] ITERABLE
@@ -6944,8 +6996,8 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
   // Step 7 is a loop.
   LoopControl loopInfo(this, StatementKind::YieldStar);
 
-  // In sync generators, normal completions are handled by
-  // GeneratorYieldStarNext, which jumps directly to the yield.
+  // In sync generators, GeneratorYieldStarNext can produce a bare value, which
+  // is yielded by a separate, untagged JSOp::Yield.
   JumpList yieldValue;
   if (!loopInfo.emitLoopHead(this, Nothing())) {
     //              [stack] NEXT ITER RECEIVED RESUMEKIND
@@ -6978,10 +7030,7 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
     }
 
     if (iterKind == IteratorKind::Sync) {
-      // Steps 7.a.i-vii.
-      //
-      // GeneratorYieldStarNext(.generator, iter, next, received) returns the
-      // value to yield, or IterationDoneSentinel.
+      // Steps 7.a.i-iii.
       if (!emitAtomOp(
               JSOp::GetIntrinsic,
               TaggedParserAtomIndex::WellKnown::GeneratorYieldStarNext())) {
@@ -6992,26 +7041,24 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
         //          [stack] NEXT ITER RECEIVED STEP UNDEFINED
         return false;
       }
-      if (!emitGetDotGeneratorInInnermostScope()) {
-        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED GENOBJ
+      if (!emitDupAt(3)) {
+        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED ITER
         return false;
       }
-      if (!emitDupAt(4)) {
-        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED GENOBJ ITER
+      if (!emitDupAt(5)) {
+        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED ITER NEXT
         return false;
       }
-      if (!emitDupAt(6)) {
-        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED GENOBJ ITER NEXT
+      if (!emit2(JSOp::Pick, 4)) {
+        //          [stack] NEXT ITER STEP UNDEFINED ITER NEXT RECEIVED
         return false;
       }
-      if (!emit2(JSOp::Pick, 5)) {
-        //          [stack] NEXT ITER STEP UNDEFINED GENOBJ ITER NEXT RECEIVED
-        return false;
-      }
-      if (!emitCall(JSOp::Call, 4, iter)) {
+      if (!emitCall(JSOp::Call, 3, iter)) {
         //          [stack] NEXT ITER VALUE
         return false;
       }
+
+      // The inner generator returned.
       if (!emit1(JSOp::Dup)) {
         //          [stack] NEXT ITER VALUE VALUE
         return false;
@@ -7023,15 +7070,49 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
         return false;
       }
       if (!emit1(JSOp::StrictEq)) {
-        //          [stack] NEXT ITER VALUE DONE
+        //          [stack] NEXT ITER VALUE IS_DONE
         return false;
       }
       if (!emitJump(JSOp::JumpIfTrue, &loopInfo.breaks)) {
         //          [stack] NEXT ITER VALUE
         return false;
       }
+
+      // An inner iterator result object, which is handled by the shared tail
+      // below. Otherwise, a bare value to yield.
+      if (!emit1(JSOp::Dup)) {
+        //          [stack] NEXT ITER VALUE VALUE
+        return false;
+      }
+      if (!emitAtomOp(
+              JSOp::GetIntrinsic,
+              TaggedParserAtomIndex::WellKnown::YieldStarIterResultSentinel())) {
+        //          [stack] NEXT ITER VALUE VALUE SENTINEL
+        return false;
+      }
+      if (!emit1(JSOp::StrictEq)) {
+        //          [stack] NEXT ITER VALUE IS_ITER_RESULT
+        return false;
+      }
+      InternalIfEmitter ifIterResult(this);
+      if (!ifIterResult.emitThenElse()) {
+        //          [stack] NEXT ITER VALUE
+        return false;
+      }
+      if (!emitTakeYieldStarStash()) {
+        //          [stack] NEXT ITER RESULT
+        return false;
+      }
+      if (!ifIterResult.emitElse()) {
+        //          [stack] NEXT ITER VALUE
+        return false;
+      }
       if (!emitJump(JSOp::Goto, &yieldValue)) {
         //          [stack] NEXT ITER VALUE
+        return false;
+      }
+      if (!ifIterResult.emitEnd()) {
+        //          [stack] NEXT ITER RESULT
         return false;
       }
     } else {
@@ -7067,8 +7148,9 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       }
     }
 
-    // For async generators, bytecode for steps 7.a.iv-vii is emitted after the
-    // ifKind if-else because it's shared with other branches.
+    // Bytecode for steps 7.a.iv-vii is emitted after the ifKind if-else because
+    // it's shared with other branches. In sync generators, only inner iterator
+    // result objects get there.
   }
 
   // Step 7.b. Check for Throw completion.
@@ -7380,45 +7462,45 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       //            [stack] NEXT ITER RESULT
       return false;
     }
-  } else {
-    // Sync generators yield bare values, except here where the inner result
-    // object is yielded as-is. Mark it so it isn't wrapped again.
-    if (!emitAtomOp(
-            JSOp::GetIntrinsic,
-            TaggedParserAtomIndex::WellKnown::GeneratorSetYieldedIterResult())) {
-      //            [stack] NEXT ITER RESULT SETYIELDEDITERRESULT
-      return false;
-    }
-    if (!emit1(JSOp::Undefined)) {
-      //            [stack] NEXT ITER RESULT SETYIELDEDITERRESULT UNDEFINED
-      return false;
-    }
-    if (!emitGetDotGeneratorInInnermostScope()) {
-      //            [stack] NEXT ITER RESULT SETYIELDEDITERRESULT UNDEFINED
-      //                    GENOBJ
-      return false;
-    }
-    if (!emitCall(JSOp::CallIgnoresRv, 1)) {
-      //            [stack] NEXT ITER RESULT IGNORED
-      return false;
-    }
-    if (!emit1(JSOp::Pop)) {
-      //            [stack] NEXT ITER RESULT
-      return false;
-    }
-
-    if (!emitJumpTargetAndPatch(yieldValue)) {
-      //            [stack] NEXT ITER RESULT
-      return false;
-    }
   }
   if (!emitGetDotGeneratorInInnermostScope()) {
     //              [stack] NEXT ITER RESULT GENOBJ
     return false;
   }
-  if (!emitYieldOp(JSOp::Yield)) {
+  // Sync generators yield bare values, except here where the inner result
+  // object is yielded as-is.
+  if (!emitYieldOp(JSOp::Yield,
+                   /* yieldsIterResult = */ iterKind == IteratorKind::Sync)) {
     //              [stack] NEXT ITER RVAL RESUMEKIND
     return false;
+  }
+
+  if (iterKind == IteratorKind::Sync) {
+    JumpList afterYield;
+    if (!emitJump(JSOp::Goto, &afterYield)) {
+      //            [stack] NEXT ITER RVAL RESUMEKIND
+      return false;
+    }
+
+    // Yield a bare value from GeneratorYieldStarNext.
+    bytecodeSection().setStackDepth(startDepth - 1);
+    if (!emitJumpTargetAndPatch(yieldValue)) {
+      //            [stack] NEXT ITER VALUE
+      return false;
+    }
+    if (!emitGetDotGeneratorInInnermostScope()) {
+      //            [stack] NEXT ITER VALUE GENOBJ
+      return false;
+    }
+    if (!emitYieldOp(JSOp::Yield)) {
+      //            [stack] NEXT ITER RVAL RESUMEKIND
+      return false;
+    }
+
+    if (!emitJumpTargetAndPatch(afterYield)) {
+      //            [stack] NEXT ITER RVAL RESUMEKIND
+      return false;
+    }
   }
   if (!loopInfo.emitLoopEnd(this, JSOp::Goto, TryNoteKind::Loop)) {
     //              [stack] NEXT ITER RVAL RESUMEKIND
@@ -7444,9 +7526,7 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
     return false;
   }
   if (iterKind == IteratorKind::Sync) {
-    // RESULT is IterationDoneSentinel if GeneratorYieldStarNext found the inner
-    // iterator done, in which case it stashed the return value in element 0 of
-    // globalYieldStarReturnValue.
+    // RESULT is IterationDoneSentinel if the inner generator returned.
     if (!emit1(JSOp::Dup)) {
       //            [stack] RESULT RESULT
       return false;
@@ -7457,57 +7537,19 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       return false;
     }
     if (!emit1(JSOp::StrictEq)) {
-      //            [stack] RESULT IS_SENTINEL
+      //            [stack] RESULT IS_DONE
       return false;
     }
-    InternalIfEmitter ifSentinel(this);
-    if (!ifSentinel.emitThenElse()) {
+    InternalIfEmitter ifDone(this);
+    if (!ifDone.emitThenElse()) {
       //            [stack] RESULT
       return false;
     }
-    if (!emit1(JSOp::Pop)) {
-      //            [stack]
-      return false;
-    }
-    if (!emitAtomOp(
-            JSOp::GetIntrinsic,
-            TaggedParserAtomIndex::WellKnown::globalYieldStarReturnValue())) {
-      //            [stack] HOLDER
-      return false;
-    }
-    if (!emit1(JSOp::Dup)) {
-      //            [stack] HOLDER HOLDER
-      return false;
-    }
-    if (!emit1(JSOp::Zero)) {
-      //            [stack] HOLDER HOLDER 0
-      return false;
-    }
-    if (!emitElemOpBase(JSOp::GetElem)) {
-      //            [stack] HOLDER VALUE
-      return false;
-    }
-    if (!emit1(JSOp::Swap)) {
-      //            [stack] VALUE HOLDER
-      return false;
-    }
-    if (!emit1(JSOp::Zero)) {
-      //            [stack] VALUE HOLDER 0
-      return false;
-    }
-    if (!emit1(JSOp::Undefined)) {
-      //            [stack] VALUE HOLDER 0 UNDEFINED
-      return false;
-    }
-    if (!emitElemOpBase(sc->strict() ? JSOp::StrictSetElem : JSOp::SetElem)) {
-      //            [stack] VALUE UNDEFINED
-      return false;
-    }
-    if (!emit1(JSOp::Pop)) {
+    if (!emitTakeYieldStarStash()) {
       //            [stack] VALUE
       return false;
     }
-    if (!ifSentinel.emitElse()) {
+    if (!ifDone.emitElse()) {
       //            [stack] RESULT
       return false;
     }
@@ -7516,7 +7558,7 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       //            [stack] VALUE
       return false;
     }
-    if (!ifSentinel.emitEnd()) {
+    if (!ifDone.emitEnd()) {
       //            [stack] VALUE
       return false;
     }

@@ -189,7 +189,6 @@
   MACRO_(fulfilled, "fulfilled")                                               \
   MACRO_(gcCycleNumber, "gcCycleNumber")                                       \
   MACRO_(Generator, "Generator")                                               \
-  MACRO_(GeneratorSetYieldedIterResult, "GeneratorSetYieldedIterResult")       \
   MACRO_(GeneratorYieldStarNext, "GeneratorYieldStarNext")                     \
   MACRO_(get, "get")                                                           \
   IF_DECORATORS(MACRO_(getter, "getter"))                                      \
@@ -211,7 +210,7 @@
   MACRO_(getTimeZones, "getTimeZones")                                         \
   MACRO_(GetTypeError, "GetTypeError")                                         \
   MACRO_(getWeekInfo, "getWeekInfo")                                           \
-  MACRO_(globalYieldStarReturnValue, "globalYieldStarReturnValue")             \
+  MACRO_(globalYieldStarStash, "globalYieldStarStash")                         \
   MACRO_(global, "global")                                                     \
   MACRO_(globalThis, "globalThis")                                             \
   MACRO_(granularity, "granularity")                                           \
@@ -562,6 +561,7 @@
   MACRO_(years, "years")                                                       \
   MACRO_(yearsDisplay, "yearsDisplay")                                         \
   MACRO_(yield, "yield")                                                       \
+  MACRO_(YieldStarIterResultSentinel, "YieldStarIterResultSentinel")           \
   MACRO_(zero, "zero")                                                         \
   MACRO_(zip, "zip")                                                           \
   MACRO_(zipKeyed, "zipKeyed")                                                 \

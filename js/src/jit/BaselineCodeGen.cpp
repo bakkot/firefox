@@ -6345,7 +6345,7 @@ bool BaselineCodeGen<Handler>::emitSuspend(JSOp op) {
     } else {
       jsbytecode* pc = handler.maybePC();
       MOZ_ASSERT(pc, "compiler-only code never has a null pc");
-      masm.move32(Imm32(GET_RESUMEINDEX(pc)), temp);
+      masm.move32(Imm32(GET_TAGGED_RESUMEINDEX(pc)), temp);
       masm.storeValue(JSVAL_TYPE_INT32, temp, resumeIndexSlot);
     }
 

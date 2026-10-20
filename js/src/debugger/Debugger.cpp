@@ -1152,7 +1152,7 @@ class MOZ_RAII AutoSetGeneratorRunning {
       if (!genObj->isClosed() && !genObj->isBeforeInitialYield() &&
           genObj->isSuspended()) {
         // Yielding or awaiting.
-        resumeIndex_ = genObj->resumeIndex();
+        resumeIndex_ = genObj->taggedResumeIndex();
         genObj->setRunning();
 
         // Async generators have additionally bookkeeping which must be

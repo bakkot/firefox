@@ -5,41 +5,44 @@
 // Sync generators yield bare values, which are wrapped in iterator result
 // objects here so that the JITs can scalar replace the result object when these
 // functions are inlined into the caller. `yield*` yields the inner iterator's
-// result object as-is and marks it with GENERATOR_RESULT_KIND_ITER_RESULT.
+// result object as-is from a yield whose resume index is tagged with
+// GENERATOR_RESUME_INDEX_ITER_RESULT_TAG. A closed generator has a null resume
+// index.
 //
-// Keep the marked case in a separate call: it's cold for most call sites, which
-// lets Warp prune it so that the returned object doesn't escape through a phi.
-function GeneratorTakeYieldedIterResult(gen, result) {
-  UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_YIELDED);
+// Keep the iterator result object case in a separate call: it's cold for most
+// call sites, which lets Warp prune it so that the returned object doesn't
+// escape through a phi.
+function GeneratorYieldedIterResult(result) {
   return result;
 }
 
-// Called from `yield*` bytecode before yielding the inner result object.
-function GeneratorSetYieldedIterResult(gen) {
-  UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_ITER_RESULT);
-}
+// Unique objects returned by GeneratorYieldStarNext (and, for
+// IterationDoneSentinel, by IteratorStepValue and the *IteratorStep helpers).
+// Never exposed to content.
+var IterationDoneSentinel = CreateUniqueTenuredObject();
+var YieldStarIterResultSentinel = CreateUniqueTenuredObject();
 
-// Unique object returned by GeneratorYieldStarNext, IteratorStepValue and the
-// *IteratorStep helpers to signal completion. Never exposed to content.
-var IterationDoneSentinel = CreateIterationDoneSentinel();
+// The value that goes with the sentinel GeneratorYieldStarNext returned, in
+// element 0. Read back and cleared immediately by the `yield*` bytecode (see
+// BytecodeEmitter::emitYieldStar). This must be tenured so that Warp can bake
+// it into compiled code.
+var globalYieldStarStash = CreateTenuredHolder();
 
-// The inner iterator's return value when GeneratorYieldStarNext returned
-// IterationDoneSentinel, in element 0. Read back and cleared immediately by the
-// `yield*` bytecode (see BytecodeEmitter::emitYieldStar). This must be tenured
-// so that Warp can bake it into compiled code.
-var globalYieldStarReturnValue = CreateTenuredHolder();
-
-// The "next" step of `yield*` in the sync generator |gen|: calls
-// |next| on the inner iterator |iter| with |received|.
+// The "next" step of `yield*` in a sync generator: calls |next| on the inner
+// iterator |iter| with |received|. Returns one of:
 //
-// Returns the value for |gen| to yield and sets |gen|'s result kind to match,
-// or returns IterationDoneSentinel when the inner iterator is done.
+// - IterationDoneSentinel, if |iter| is a generator that returned. Its return
+//   value is in globalYieldStarStash.
+// - YieldStarIterResultSentinel, with the inner iterator result object in
+//   globalYieldStarStash. The `yield*` bytecode checks it for `done` as usual,
+//   and otherwise yields it as-is.
+// - Otherwise, a bare value for the outer generator to yield.
 //
 // When |iter| is a suspended same-realm generator using the original
-// GeneratorNext, it is resumed directly and its bare yielded value is passed
+// GeneratorNext, it is resumed directly and a bare yielded value is passed
 // through. This skips the inner iterator result object, which is unobservable
 // because GeneratorNext would have created a fresh plain object.
-function GeneratorYieldStarNext(gen, iter, next, received) {
+function GeneratorYieldStarNext(iter, next, received) {
   var result;
   if (
     next === GeneratorNext &&
@@ -53,20 +56,17 @@ function GeneratorYieldStarNext(gen, iter, next, received) {
       throw e;
     }
 
-    var kind = UnsafeGetInt32FromReservedSlot(iter, GENERATOR_RESULT_KIND_SLOT);
-    if (kind === GENERATOR_RESULT_KIND_YIELDED) {
-      UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_YIELDED);
-      return result;
-    }
-    if (kind === GENERATOR_RESULT_KIND_RETURNED) {
-      globalYieldStarReturnValue[0] = result;
+    var resumeIndex = UnsafeGetReservedSlot(iter, GENERATOR_RESUME_INDEX_SLOT);
+    if (resumeIndex === null) {
+      globalYieldStarStash[0] = result;
       return IterationDoneSentinel;
+    }
+    if (resumeIndex < GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+      return result;
     }
 
     // |iter| itself yielded an inner result object with `yield*`, which must
     // be passed through as-is.
-    assert(kind === GENERATOR_RESULT_KIND_ITER_RESULT, "unexpected result kind");
-    UnsafeSetReservedSlot(iter, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_YIELDED);
     assert(IsObject(result), "yield* only yields objects");
   } else {
     result = callContentFunction(next, iter, received);
@@ -75,12 +75,8 @@ function GeneratorYieldStarNext(gen, iter, next, received) {
     }
   }
 
-  if (result.done) {
-    globalYieldStarReturnValue[0] = result.value;
-    return IterationDoneSentinel;
-  }
-  UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_ITER_RESULT);
-  return result;
+  globalYieldStarStash[0] = result;
+  return YieldStarIterResultSentinel;
 }
 SetIsInlinableLargeFunction(GeneratorYieldStarNext);
 
@@ -101,11 +97,12 @@ function GeneratorNext(val) {
     throw e;
   }
 
-  var kind = UnsafeGetInt32FromReservedSlot(this, GENERATOR_RESULT_KIND_SLOT);
-  if (kind === GENERATOR_RESULT_KIND_ITER_RESULT) {
-    return GeneratorTakeYieldedIterResult(this, result);
+  var resumeIndex = UnsafeGetReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
+  var done = resumeIndex === null;
+  if (!done && resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    return GeneratorYieldedIterResult(result);
   }
-  return { value: result, done: kind === GENERATOR_RESULT_KIND_RETURNED };
+  return { value: result, done };
 }
 SetIsInlinableLargeFunction(GeneratorNext);
 
@@ -123,12 +120,12 @@ function GeneratorStep(gen) {
     throw e;
   }
 
-  var kind = UnsafeGetInt32FromReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT);
-  if (kind === GENERATOR_RESULT_KIND_ITER_RESULT) {
-    return GeneratorStepYieldedIterResult(gen, result);
-  }
-  if (kind === GENERATOR_RESULT_KIND_RETURNED) {
+  var resumeIndex = UnsafeGetReservedSlot(gen, GENERATOR_RESUME_INDEX_SLOT);
+  if (resumeIndex === null) {
     return IterationDoneSentinel;
+  }
+  if (resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    return GeneratorStepYieldedIterResult(result);
   }
   return result;
 }
@@ -137,8 +134,7 @@ SetIsInlinableLargeFunction(GeneratorStep);
 // `yield*` yielded the inner iterator's result object, which GeneratorNext
 // would have returned as-is. Read `done` and `value` from it as the caller of
 // GeneratorNext would.
-function GeneratorStepYieldedIterResult(gen, result) {
-  UnsafeSetReservedSlot(gen, GENERATOR_RESULT_KIND_SLOT, GENERATOR_RESULT_KIND_YIELDED);
+function GeneratorStepYieldedIterResult(result) {
   assert(IsObject(result), "yield* only yields objects");
   if (result.done) {
     return IterationDoneSentinel;
@@ -183,11 +179,12 @@ function GeneratorThrow(val) {
     throw e;
   }
 
-  var kind = UnsafeGetInt32FromReservedSlot(this, GENERATOR_RESULT_KIND_SLOT);
-  if (kind === GENERATOR_RESULT_KIND_ITER_RESULT) {
-    return GeneratorTakeYieldedIterResult(this, result);
+  var resumeIndex = UnsafeGetReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
+  var done = resumeIndex === null;
+  if (!done && resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    return GeneratorYieldedIterResult(result);
   }
-  return { value: result, done: kind === GENERATOR_RESULT_KIND_RETURNED };
+  return { value: result, done };
 }
 
 function GeneratorThrowSlow(val) {
@@ -232,11 +229,12 @@ function GeneratorReturn(val) {
     throw e;
   }
 
-  var kind = UnsafeGetInt32FromReservedSlot(this, GENERATOR_RESULT_KIND_SLOT);
-  if (kind === GENERATOR_RESULT_KIND_ITER_RESULT) {
-    return GeneratorTakeYieldedIterResult(this, result);
+  var resumeIndex = UnsafeGetReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
+  var done = resumeIndex === null;
+  if (!done && resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    return GeneratorYieldedIterResult(result);
   }
-  return { value: result, done: kind === GENERATOR_RESULT_KIND_RETURNED };
+  return { value: result, done };
 }
 
 function GeneratorReturnSlow(val) {

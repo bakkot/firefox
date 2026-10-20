@@ -42,6 +42,9 @@ class AbstractGeneratorObject : public NativeObject {
   JS_DEFINE_TYPED_SLOT(4, RESUME_INDEX_SLOT, Int32, Null, Undefined);
   static constexpr uint32_t RESERVED_SLOTS = 5;
 
+  static_assert(RESUMEINDEX_ITER_RESULT_TAG ==
+                    GENERATOR_RESUME_INDEX_ITER_RESULT_TAG,
+                "RESUMEINDEX_ITER_RESULT_TAG must match self-hosting define.");
   static_assert(RESUME_INDEX_SLOT.index() == GENERATOR_RESUME_INDEX_SLOT,
                 "RESUME_INDEX_SLOT must match self-hosting define for resume "
                 "index slot.");
@@ -171,7 +174,7 @@ class AbstractGeneratorObject : public NativeObject {
                   getFixedSlotTyped(RESUME_INDEX_SLOT).isUndefined());
     MOZ_ASSERT_IF(JSOp(*pc) != JSOp::InitialYield, isRunning());
 
-    uint32_t resumeIndex = GET_UINT24(pc);
+    uint32_t resumeIndex = GET_TAGGED_RESUMEINDEX(pc);
     MOZ_ASSERT(resumeIndex < uint32_t(RESUME_INDEX_RUNNING));
 
     setFixedSlotTyped(RESUME_INDEX_SLOT, Int32Value(resumeIndex));
@@ -180,7 +183,13 @@ class AbstractGeneratorObject : public NativeObject {
   void setResumeIndex(int32_t resumeIndex) {
     setFixedSlotTyped(RESUME_INDEX_SLOT, Int32Value(resumeIndex));
   }
+  // The resume index, without RESUMEINDEX_ITER_RESULT_TAG.
   uint32_t resumeIndex() const {
+    return taggedResumeIndex() & ~RESUMEINDEX_ITER_RESULT_TAG;
+  }
+  // The resume index as stored, including RESUMEINDEX_ITER_RESULT_TAG if the
+  // generator is suspended at a yield of an iterator result object.
+  int32_t taggedResumeIndex() const {
     MOZ_ASSERT(isSuspended());
     return getFixedSlotTyped(RESUME_INDEX_SLOT).toInt32();
   }
@@ -227,36 +236,7 @@ class AbstractGeneratorObject : public NativeObject {
 
 class GeneratorObject : public AbstractGeneratorObject {
  public:
-  // Sync generators yield and return bare values, which %GeneratorPrototype%
-  // methods wrap in iterator result objects. This slot says what the value
-  // handed back by the last resumption was:
-  //
-  // - Yielded: a bare value from `yield`.
-  // - Returned: a bare value from `return`; the generator is closed.
-  // - IterResult: the inner iterator's result object, yielded as-is by
-  //   `yield*`, which must not be wrapped again.
-  enum class ResultKind : int32_t {
-    Yielded = GENERATOR_RESULT_KIND_YIELDED,
-    Returned = GENERATOR_RESULT_KIND_RETURNED,
-    IterResult = GENERATOR_RESULT_KIND_ITER_RESULT,
-  };
-
-  JS_DEFINE_TYPED_SLOT(AbstractGeneratorObject::RESERVED_SLOTS,
-                       RESULT_KIND_SLOT, Int32, Undefined);
-  static constexpr uint32_t RESERVED_SLOTS =
-      AbstractGeneratorObject::RESERVED_SLOTS + 1;
-
-  static_assert(RESULT_KIND_SLOT.index() == GENERATOR_RESULT_KIND_SLOT,
-                "RESULT_KIND_SLOT must match self-hosting define.");
-
-  ResultKind resultKind() const {
-    return ResultKind(getFixedSlotTyped(RESULT_KIND_SLOT).toInt32());
-  }
-  void setResultKind(ResultKind kind) {
-    setFixedSlotTyped(RESULT_KIND_SLOT, Int32Value(int32_t(kind)));
-  }
-
-  static size_t resultKindSlot() { return RESULT_KIND_SLOT.index(); }
+  enum { RESERVED_SLOTS = AbstractGeneratorObject::RESERVED_SLOTS };
 
   static const JSClass class_;
   static const JSClassOps classOps_;
