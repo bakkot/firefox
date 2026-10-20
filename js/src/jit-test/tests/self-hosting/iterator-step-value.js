@@ -229,3 +229,80 @@ for (var i = 0; i < 50; i++) {
     sameValues(Array.from(it), [4, 5]);
   }
 }
+
+// Generators and iterator helpers.
+for (var i = 0; i < 50; i++) {
+  function* inner() { yield 2; return "ignored"; }
+  function* outer() {
+    yield 1;
+    yield* inner();
+    yield* [3, 4];
+    var r = yield 5;
+    assertEq(r, undefined);
+    return 6;
+  }
+  sameValues(Array.from(outer()), [1, 2, 3, 4, 5]);
+  sameValues(Iterator.from(outer()).map(x => x * 2).filter(x => x > 2).toArray(),
+             [4, 6, 8, 10]);
+
+  // yield* of a user iterator: `done` and `value` are each read once by the
+  // consumer, after `yield*` itself read `done`.
+  var log = [];
+  var userIter = {
+    k: 0,
+    [Symbol.iterator]() { return this; },
+    next() {
+      var k = this.k++;
+      return {
+        get done() { log.push("d" + k); return k >= 2; },
+        get value() { log.push("v" + k); return k; },
+      };
+    },
+  };
+  function* delegate() { yield* userIter; }
+  sameValues(Array.from(delegate()), [0, 1]);
+  assertEq(log.join(), "d0,d0,v0,d1,d1,v1,d2,v2");
+
+  // Exceptions from the generator body close it, and don't call IteratorClose.
+  function* thrower() { yield 1; throw new Error("boom"); }
+  var it = thrower();
+  assertThrowsInstanceOf(() => Array.from(it), Error);
+  sameValues(Array.from(it), []);
+
+  // Breaking out of the loop closes the generator.
+  var finallyRan = false;
+  function* withFinally() { try { yield 1; yield 2; } finally { finallyRan = true; } }
+  assertThrowsInstanceOf(() => new Map(withFinally()), TypeError);
+  assertEq(finallyRan, true);
+
+  // A generator that re-enters itself through the consumer.
+  var self;
+  function* reentrant() { yield 1; self.next(); }
+  self = reentrant();
+  assertThrowsInstanceOf(() => Array.from(self), TypeError);
+
+  // Already-exhausted generators and helpers.
+  var done = outer();
+  Array.from(done);
+  sameValues(Array.from(done), []);
+  var helper = [1].values().map(x => x);
+  helper.next();
+  helper.next();
+  sameValues(Array.from(helper), []);
+
+  // Overridden `next` on a generator instance and on an iterator helper.
+  var g = outer();
+  g.next = () => ({ done: true });
+  sameValues(Array.from(g), []);
+  var h = [1, 2].values().map(x => x);
+  h.next = () => ({ done: true });
+  sameValues(Array.from(h), []);
+}
+
+// Generators and helpers from other realms.
+for (var i = 0; i < 50; i++) {
+  for (var g of [sameCompartment, otherCompartment]) {
+    sameValues(Array.from(g.eval("(function*() { yield 1; yield 2; })()")), [1, 2]);
+    sameValues(Array.from(g.eval("[1, 2].values().map(x => x + 1)")), [2, 3]);
+  }
+}

@@ -60,6 +60,17 @@ function IteratorStepValue(iterator, nextMethod) {
     if ((obj = GuardToStringIterator(iterator)) !== null) {
       return StringIteratorStep(obj);
     }
+  } else if (nextMethod === GeneratorNext) {
+    if (IsSuspendedGenerator(iterator)) {
+      return GeneratorStep(iterator);
+    }
+  } else if (nextMethod === IteratorHelperNext) {
+    if ((obj = GuardToIteratorHelper(iterator)) !== null) {
+      var generator = UnsafeGetReservedSlot(obj, ITERATOR_HELPER_GENERATOR_SLOT);
+      if (IsSuspendedGenerator(generator)) {
+        return GeneratorStep(generator);
+      }
+    }
   }
 
   var result = callContentFunction(nextMethod, iterator);
