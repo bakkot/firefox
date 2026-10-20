@@ -782,9 +782,42 @@ static bool intrinsic_IsSuspendedGenerator(JSContext* cx, unsigned argc,
     return true;
   }
 
+  // Cross-realm generators are handled by the slow paths in Generator.js,
+  // which create the iterator result object in the generator's realm.
   GeneratorObject& genObj = args[0].toObject().as<GeneratorObject>();
   MOZ_ASSERT_IF(genObj.isSuspended(), !genObj.isClosed());
-  args.rval().setBoolean(genObj.isSuspended());
+  args.rval().setBoolean(genObj.isSuspended() &&
+                         genObj.nonCCWRealm() == cx->realm());
+  return true;
+}
+
+// Wrap a value which a sync generator just yielded or returned in an iterator
+// result object created in the generator's realm, unless `yield*` already
+// yielded one.
+static bool intrinsic_GeneratorIterResult(JSContext* cx, unsigned argc,
+                                          Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() == 2);
+
+  Rooted<GeneratorObject*> genObj(cx,
+                                  &args[0].toObject().as<GeneratorObject>());
+  GeneratorObject::ResultKind kind = genObj->resultKind();
+  if (kind == GeneratorObject::ResultKind::IterResult) {
+    genObj->setResultKind(GeneratorObject::ResultKind::Yielded);
+    args.rval().set(args[1]);
+    return true;
+  }
+
+  PlainObject* result;
+  {
+    AutoRealm ar(cx, genObj);
+    result = CreateIterResultObject(
+        cx, args[1], kind == GeneratorObject::ResultKind::Returned);
+  }
+  if (!result) {
+    return false;
+  }
+  args.rval().setObject(*result);
   return true;
 }
 
@@ -1558,6 +1591,7 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("FlatStringMatch", FlatStringMatch, 2, 0),
     JS_FN("FlatStringSearch", FlatStringSearch, 2, 0),
     JS_FN("GeneratorIsRunning", intrinsic_GeneratorIsRunning, 1, 0),
+    JS_FN("GeneratorIterResult", intrinsic_GeneratorIterResult, 2, 0),
     JS_FN("GeneratorObjectIsClosed", intrinsic_GeneratorObjectIsClosed, 1, 0),
     JS_FN("GeneratorSetClosed", intrinsic_GeneratorSetClosed, 1, 0),
     JS_FN("GetElemBaseForLambda", intrinsic_GetElemBaseForLambda, 1, 0),

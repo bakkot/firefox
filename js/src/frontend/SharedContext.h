@@ -328,7 +328,6 @@ class SuspendableContext : public SharedContext {
   bool needsFinalYield() const { return isGenerator() || isAsync(); }
   bool needsDotGeneratorName() const { return isGenerator() || isAsync(); }
   bool needsClearSlotsOnExit() const { return isGenerator() || isAsync(); }
-  bool needsIteratorResult() const { return isGenerator() && !isAsync(); }
   bool needsPromiseResult() const { return isAsync() && !isGenerator(); }
 };
 
@@ -532,7 +531,6 @@ class FunctionBox : public SuspendableContext {
   bool needsFinalYield() const { return isGenerator() || isAsync(); }
   bool needsDotGeneratorName() const { return isGenerator() || isAsync(); }
   bool needsClearSlotsOnExit() const { return isGenerator() || isAsync(); }
-  bool needsIteratorResult() const { return isGenerator() && !isAsync(); }
   bool needsPromiseResult() const { return isAsync() && !isGenerator(); }
 
   bool isArrow() const { return flags_.isArrow(); }

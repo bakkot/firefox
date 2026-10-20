@@ -227,7 +227,36 @@ class AbstractGeneratorObject : public NativeObject {
 
 class GeneratorObject : public AbstractGeneratorObject {
  public:
-  enum { RESERVED_SLOTS = AbstractGeneratorObject::RESERVED_SLOTS };
+  // Sync generators yield and return bare values, which %GeneratorPrototype%
+  // methods wrap in iterator result objects. This slot says what the value
+  // handed back by the last resumption was:
+  //
+  // - Yielded: a bare value from `yield`.
+  // - Returned: a bare value from `return`; the generator is closed.
+  // - IterResult: the inner iterator's result object, yielded as-is by
+  //   `yield*`, which must not be wrapped again.
+  enum class ResultKind : int32_t {
+    Yielded = GENERATOR_RESULT_KIND_YIELDED,
+    Returned = GENERATOR_RESULT_KIND_RETURNED,
+    IterResult = GENERATOR_RESULT_KIND_ITER_RESULT,
+  };
+
+  JS_DEFINE_TYPED_SLOT(AbstractGeneratorObject::RESERVED_SLOTS,
+                       RESULT_KIND_SLOT, Int32, Undefined);
+  static constexpr uint32_t RESERVED_SLOTS =
+      AbstractGeneratorObject::RESERVED_SLOTS + 1;
+
+  static_assert(RESULT_KIND_SLOT.index() == GENERATOR_RESULT_KIND_SLOT,
+                "RESULT_KIND_SLOT must match self-hosting define.");
+
+  ResultKind resultKind() const {
+    return ResultKind(getFixedSlotTyped(RESULT_KIND_SLOT).toInt32());
+  }
+  void setResultKind(ResultKind kind) {
+    setFixedSlotTyped(RESULT_KIND_SLOT, Int32Value(int32_t(kind)));
+  }
+
+  static size_t resultKindSlot() { return RESULT_KIND_SLOT.index(); }
 
   static const JSClass class_;
   static const JSClassOps classOps_;

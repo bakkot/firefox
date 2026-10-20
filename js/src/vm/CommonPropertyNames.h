@@ -189,6 +189,7 @@
   MACRO_(fulfilled, "fulfilled")                                               \
   MACRO_(gcCycleNumber, "gcCycleNumber")                                       \
   MACRO_(Generator, "Generator")                                               \
+  MACRO_(GeneratorSetYieldedIterResult, "GeneratorSetYieldedIterResult")       \
   MACRO_(get, "get")                                                           \
   IF_DECORATORS(MACRO_(getter, "getter"))                                      \
   MACRO_(GetAggregateError, "GetAggregateError")                               \

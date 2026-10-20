@@ -716,8 +716,6 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
                                        TaggedParserAtomIndex anonFunctionName);
   [[nodiscard]] bool emitAssignmentRhs(uint8_t offset);
 
-  [[nodiscard]] bool emitPrepareIteratorResult();
-  [[nodiscard]] bool emitFinishIteratorResult(bool done);
 
   // Convert and add `writer` data to stencil.
   // Iff it suceeds, `outIndex` out parameter is initialized to the index of the

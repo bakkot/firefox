@@ -6206,10 +6206,20 @@ void MacroAssembler::branchIfObjectNotExtensible(Register obj, Register scratch,
 void MacroAssembler::branchIfNotSuspendedGenerator(Register obj,
                                                    Register scratch,
                                                    Register spectreRegToZero,
+                                                   const void* realm,
                                                    Label* label) {
-  // Test if it's a GeneratorObject.
-  branchTestObjClass(Assembler::NotEqual, obj, &GeneratorObject::class_,
-                     scratch, spectreRegToZero, label);
+  // Test if it's a GeneratorObject, from |realm| if it's non-null.
+  loadPtr(Address(obj, JSObject::offsetOfShape()), scratch);
+  loadPtr(Address(scratch, Shape::offsetOfBaseShape()), scratch);
+  if (realm) {
+    branchPtr(Assembler::NotEqual, Address(scratch, BaseShape::offsetOfRealm()),
+              ImmPtr(realm), label);
+  }
+  branchPtr(Assembler::NotEqual, Address(scratch, BaseShape::offsetOfClasp()),
+            ImmPtr(&GeneratorObject::class_), label);
+  if (JitOptions.spectreObjectMitigations) {
+    spectreZeroRegister(Assembler::NotEqual, scratch, spectreRegToZero);
+  }
 
   // If the resumeIndex slot holds an int32 value < RESUME_INDEX_RUNNING, the
   // generator is suspended.

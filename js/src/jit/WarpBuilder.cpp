@@ -2827,6 +2827,13 @@ bool WarpBuilder::build_FinalYieldRval(BytecodeLocation loc) {
   setSlotNull(AbstractGeneratorObject::stackStorageSlot());
   setSlotNull(AbstractGeneratorObject::resumeIndexSlot());
 
+  if (script_->isGenerator() && !script_->isAsync()) {
+    auto* ins = MStoreFixedSlot::NewNoPreBarrier(
+        alloc(), gen, GeneratorObject::resultKindSlot(),
+        constant(Int32Value(int32_t(GeneratorObject::ResultKind::Returned))));
+    current->add(ins);
+  }
+
   // Return
   return build_RetRval(loc);
 }

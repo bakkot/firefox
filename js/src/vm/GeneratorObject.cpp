@@ -325,7 +325,12 @@ GeneratorObject* GeneratorObject::create(JSContext* cx, HandleFunction fun) {
       return nullptr;
     }
   }
-  return NewObjectWithGivenProto<GeneratorObject>(cx, proto);
+  GeneratorObject* genObj = NewObjectWithGivenProto<GeneratorObject>(cx, proto);
+  if (!genObj) {
+    return nullptr;
+  }
+  genObj->setResultKind(ResultKind::Yielded);
+  return genObj;
 }
 
 const JSClass GeneratorObject::class_ = {
@@ -457,6 +462,10 @@ void AbstractGeneratorObject::setClosed(JSContext* cx) {
   setFixedSlotTyped(ARGS_OBJ_SLOT, NullValue());
   setFixedSlotTyped(STACK_STORAGE_SLOT, NullValue());
   setFixedSlotTyped(RESUME_INDEX_SLOT, NullValue());
+
+  if (is<GeneratorObject>()) {
+    as<GeneratorObject>().setResultKind(GeneratorObject::ResultKind::Returned);
+  }
 
   DebugAPI::onGeneratorClosed(cx, this);
 }

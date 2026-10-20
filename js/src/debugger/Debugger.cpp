@@ -89,7 +89,6 @@
 #include "vm/GeneratorObject.h"       // for AbstractGeneratorObject
 #include "vm/GlobalObject.h"          // for GlobalObject
 #include "vm/Interpreter.h"           // for Call, ReportIsNotFunction
-#include "vm/Iteration.h"             // for CreateIterResultObject
 #include "vm/JSAtomUtils.h"  // for Atomize, AtomizeUTF8Chars, ZoneHasRef, AtomToId, ClassName
 #include "vm/JSContext.h"         // for JSContext
 #include "vm/JSFunction.h"        // for JSFunction
@@ -1869,17 +1868,10 @@ static bool CheckResumptionValue(JSContext* cx, AbstractFramePtr frame,
     // 1.  `return <value>` creates and returns a new object,
     //     `{value: <value>, done: true}`.
     //
-    // For non-async generators, the iterator result object is created in
-    // bytecode, so we have to simulate that here. For async generators, our
-    // C++ implementation of AsyncGeneratorResolve will do this. So don't do it
-    // twice:
-    if (!genObj->is<AsyncGeneratorObject>()) {
-      PlainObject* pair = CreateIterResultObject(cx, vp, true);
-      if (!pair) {
-        return false;
-      }
-      vp.setObject(*pair);
-    }
+    // For non-async generators, the iterator result object is created by the
+    // %GeneratorPrototype% method which resumed the generator. For async
+    // generators, our C++ implementation of AsyncGeneratorResolve will do
+    // this. Either way, return the bare value.
 
     // 2.  The generator must be closed.
     genObj->setClosed(cx);
