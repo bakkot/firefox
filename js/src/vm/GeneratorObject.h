@@ -31,6 +31,10 @@ class AbstractGeneratorObject : public NativeObject {
   // running or closing. See the resumeIndex comment below.
   static const int32_t RESUME_INDEX_RUNNING = INT32_MAX;
 
+  // Magic value stored in the resumeIndex slot when the generator is closed.
+  // Resume indices of suspended generators are below this value.
+  static const int32_t RESUME_INDEX_CLOSED = INT32_MAX - 1;
+
   // Resume index of the initial yield. Used to identify the "suspended-start"
   // generator state.
   static const int32_t RESUME_INDEX_INITIAL_YIELD = 0;
@@ -39,9 +43,11 @@ class AbstractGeneratorObject : public NativeObject {
   JS_DEFINE_TYPED_SLOT(1, ENV_CHAIN_SLOT, Object, Null, Undefined);
   JS_DEFINE_TYPED_SLOT(2, ARGS_OBJ_SLOT, Object, Null, Undefined);
   JS_DEFINE_TYPED_SLOT(3, STACK_STORAGE_SLOT, Object, Null, Undefined);
-  JS_DEFINE_TYPED_SLOT(4, RESUME_INDEX_SLOT, Int32, Null, Undefined);
+  JS_DEFINE_TYPED_SLOT(4, RESUME_INDEX_SLOT, Int32, Undefined);
   static constexpr uint32_t RESERVED_SLOTS = 5;
 
+  static_assert(RESUME_INDEX_CLOSED == GENERATOR_RESUME_INDEX_CLOSED,
+                "RESUME_INDEX_CLOSED must match self-hosting define.");
   static_assert(RESUMEINDEX_ITER_RESULT_TAG ==
                     GENERATOR_RESUME_INDEX_ITER_RESULT_TAG,
                 "RESUMEINDEX_ITER_RESULT_TAG must match self-hosting define.");
@@ -139,9 +145,9 @@ class AbstractGeneratorObject : public NativeObject {
   void setUnaliasedLocal(uint32_t slot, const Value& value);
 
   // The resumeIndex slot is abused for a few purposes.  It's undefined if
-  // it hasn't been set yet (before the initial yield), and null if the
-  // generator is closed. If the generator is running, the resumeIndex is
-  // RESUME_INDEX_RUNNING.
+  // it hasn't been set yet (before the initial yield), and
+  // RESUME_INDEX_CLOSED if the generator is closed. If the generator is
+  // running, the resumeIndex is RESUME_INDEX_RUNNING.
   //
   // If the generator is suspended, it's the resumeIndex (stored as
   // JSOp::InitialYield/JSOp::Yield/JSOp::Await operand) of the yield
@@ -160,7 +166,7 @@ class AbstractGeneratorObject : public NativeObject {
     // changes.
     Value resumeIndex = getFixedSlotTyped(RESUME_INDEX_SLOT);
     return resumeIndex.isInt32() &&
-           resumeIndex.toInt32() < RESUME_INDEX_RUNNING;
+           resumeIndex.toInt32() < RESUME_INDEX_CLOSED;
   }
   void setRunning() {
     MOZ_ASSERT(isSuspended());
@@ -175,7 +181,7 @@ class AbstractGeneratorObject : public NativeObject {
     MOZ_ASSERT_IF(JSOp(*pc) != JSOp::InitialYield, isRunning());
 
     uint32_t resumeIndex = GET_TAGGED_RESUMEINDEX(pc);
-    MOZ_ASSERT(resumeIndex < uint32_t(RESUME_INDEX_RUNNING));
+    MOZ_ASSERT(resumeIndex < uint32_t(RESUME_INDEX_CLOSED));
 
     setFixedSlotTyped(RESUME_INDEX_SLOT, Int32Value(resumeIndex));
     MOZ_ASSERT(isSuspended());

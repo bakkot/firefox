@@ -6,8 +6,9 @@
 // objects here so that the JITs can scalar replace the result object when these
 // functions are inlined into the caller. `yield*` yields the inner iterator's
 // result object as-is from a yield whose resume index is tagged with
-// GENERATOR_RESUME_INDEX_ITER_RESULT_TAG. A closed generator has a null resume
-// index.
+// GENERATOR_RESUME_INDEX_ITER_RESULT_TAG. A closed generator's resume index is
+// GENERATOR_RESUME_INDEX_CLOSED. Both are at least
+// GENERATOR_RESUME_INDEX_ITER_RESULT_TAG, so a plain yield is a single compare.
 //
 // Keep the iterator result object case in a separate call: it's cold for most
 // call sites, which lets Warp prune it so that the returned object doesn't
@@ -56,13 +57,13 @@ function GeneratorYieldStarNext(iter, next, received) {
       throw e;
     }
 
-    var resumeIndex = UnsafeGetReservedSlot(iter, GENERATOR_RESUME_INDEX_SLOT);
-    if (resumeIndex === null) {
-      globalYieldStarStash[0] = result;
-      return IterationDoneSentinel;
-    }
+    var resumeIndex = UnsafeGetInt32FromReservedSlot(iter, GENERATOR_RESUME_INDEX_SLOT);
     if (resumeIndex < GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
       return result;
+    }
+    if (resumeIndex === GENERATOR_RESUME_INDEX_CLOSED) {
+      globalYieldStarStash[0] = result;
+      return IterationDoneSentinel;
     }
 
     // |iter| itself yielded an inner result object with `yield*`, which must
@@ -97,10 +98,13 @@ function GeneratorNext(val) {
     throw e;
   }
 
-  var resumeIndex = UnsafeGetReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
-  var done = resumeIndex === null;
-  if (!done && resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
-    return GeneratorYieldedIterResult(result);
+  var resumeIndex = UnsafeGetInt32FromReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
+  var done = false;
+  if (resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    if (resumeIndex !== GENERATOR_RESUME_INDEX_CLOSED) {
+      return GeneratorYieldedIterResult(result);
+    }
+    done = true;
   }
   return { value: result, done };
 }
@@ -120,14 +124,14 @@ function GeneratorStep(gen) {
     throw e;
   }
 
-  var resumeIndex = UnsafeGetReservedSlot(gen, GENERATOR_RESUME_INDEX_SLOT);
-  if (resumeIndex === null) {
+  var resumeIndex = UnsafeGetInt32FromReservedSlot(gen, GENERATOR_RESUME_INDEX_SLOT);
+  if (resumeIndex < GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    return result;
+  }
+  if (resumeIndex === GENERATOR_RESUME_INDEX_CLOSED) {
     return IterationDoneSentinel;
   }
-  if (resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
-    return GeneratorStepYieldedIterResult(result);
-  }
-  return result;
+  return GeneratorStepYieldedIterResult(result);
 }
 SetIsInlinableLargeFunction(GeneratorStep);
 
@@ -179,10 +183,13 @@ function GeneratorThrow(val) {
     throw e;
   }
 
-  var resumeIndex = UnsafeGetReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
-  var done = resumeIndex === null;
-  if (!done && resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
-    return GeneratorYieldedIterResult(result);
+  var resumeIndex = UnsafeGetInt32FromReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
+  var done = false;
+  if (resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    if (resumeIndex !== GENERATOR_RESUME_INDEX_CLOSED) {
+      return GeneratorYieldedIterResult(result);
+    }
+    done = true;
   }
   return { value: result, done };
 }
@@ -229,10 +236,13 @@ function GeneratorReturn(val) {
     throw e;
   }
 
-  var resumeIndex = UnsafeGetReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
-  var done = resumeIndex === null;
-  if (!done && resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
-    return GeneratorYieldedIterResult(result);
+  var resumeIndex = UnsafeGetInt32FromReservedSlot(this, GENERATOR_RESUME_INDEX_SLOT);
+  var done = false;
+  if (resumeIndex >= GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
+    if (resumeIndex !== GENERATOR_RESUME_INDEX_CLOSED) {
+      return GeneratorYieldedIterResult(result);
+    }
+    done = true;
   }
   return { value: result, done };
 }

@@ -2103,7 +2103,7 @@ static constexpr size_t MaxResumeIndex = BitMask(23);
 
 bool BytecodeEmitter::checkResumeIndexLimit() {
   static_assert(
-      MaxResumeIndex < uint32_t(AbstractGeneratorObject::RESUME_INDEX_RUNNING),
+      MaxResumeIndex < uint32_t(AbstractGeneratorObject::RESUME_INDEX_CLOSED),
       "resumeIndex should not include magic AbstractGeneratorObject "
       "resumeIndex values");
   static_assert(

@@ -456,7 +456,7 @@ void AbstractGeneratorObject::setClosed(JSContext* cx) {
   setFixedSlotTyped(ENV_CHAIN_SLOT, NullValue());
   setFixedSlotTyped(ARGS_OBJ_SLOT, NullValue());
   setFixedSlotTyped(STACK_STORAGE_SLOT, NullValue());
-  setFixedSlotTyped(RESUME_INDEX_SLOT, NullValue());
+  setFixedSlotTyped(RESUME_INDEX_SLOT, Int32Value(RESUME_INDEX_CLOSED));
 
   DebugAPI::onGeneratorClosed(cx, this);
 }

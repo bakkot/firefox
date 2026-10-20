@@ -141,6 +141,9 @@
 // iterator result object, rather than a bare value (see
 // RESUMEINDEX_ITER_RESULT_TAG).
 #define GENERATOR_RESUME_INDEX_ITER_RESULT_TAG 0x800000
+// Resume index of a closed generator (AbstractGeneratorObject::
+// RESUME_INDEX_CLOSED).
+#define GENERATOR_RESUME_INDEX_CLOSED 0x7ffffffe
 #define GENERATOR_RESUME_INDEX_INITIAL_YIELD 0
 
 // Control values for Iterator.range
