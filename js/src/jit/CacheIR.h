@@ -197,7 +197,8 @@ class TypedOperandId : public OperandId {
   _(BinaryArith)          \
   _(NewObject)            \
   _(NewArray)             \
-  _(Lambda)
+  _(Lambda)               \
+  _(Generator)
 
 enum class CacheKind : uint8_t {
 #define DEFINE_KIND(kind) kind,

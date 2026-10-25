@@ -36,6 +36,7 @@ class RegExpFlags;
 
 namespace js {
 
+class AbstractGeneratorObject;
 class ArrayObject;
 class BoundFunctionObject;
 class NativeObject;
@@ -1241,6 +1242,20 @@ class MOZ_RAII LambdaIRGenerator : public IRGenerator {
 
   AttachDecision tryAttachStub();
   AttachDecision tryAttachFunctionClone();
+};
+
+class MOZ_RAII GeneratorIRGenerator : public IRGenerator {
+  // The generator object created for the current frame by the fallback stub.
+  Handle<AbstractGeneratorObject*> generator_;
+
+  void trackAttached(const char* name /* must be a C string literal */);
+
+ public:
+  GeneratorIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                       ICState state,
+                       Handle<AbstractGeneratorObject*> generator);
+
+  AttachDecision tryAttachStub();
 };
 
 // Returns true for bytecode call ops that can use InlinableNativeIRGenerator.

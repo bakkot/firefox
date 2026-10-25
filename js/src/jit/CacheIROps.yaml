@@ -2652,6 +2652,13 @@
   cost_estimate: 1
   args:
 
+- name: LoadFrameCallee
+  shared: false
+  transpile: true
+  cost_estimate: 1
+  args:
+    result: ObjId
+
 - name: LoadObjectResult
   shared: true
   transpile: true
@@ -3445,6 +3452,17 @@
     canonical: ObjectField
     allocKind: AllocKindImm
     site: AllocSiteField
+
+- name: NewGeneratorObjectResult
+  shared: false
+  transpile: true
+  cost_estimate: 4
+  args:
+    callee: ObjId
+    allocKind: AllocKindImm
+    shape: ShapeField
+    stackStorageShape: ShapeField
+    stackStorageLength: UInt32Imm
 
 - name: ConcatStringsResult
   shared: true

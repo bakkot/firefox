@@ -14,6 +14,7 @@ namespace jit {
   _(NewArray)                                  \
   _(NewObject)                                 \
   _(Lambda)                                    \
+  _(Generator)                                 \
   _(ToBool)                                    \
   _(UnaryArith)                                \
   _(Call)                                      \

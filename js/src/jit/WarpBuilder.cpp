@@ -2698,18 +2698,7 @@ bool WarpBuilder::build_CheckThisReinit(BytecodeLocation loc) {
 
 bool WarpBuilder::build_Generator(BytecodeLocation loc) {
   MOZ_ASSERT(usesEnvironmentChain());
-
-  MDefinition* callee = getCallee();
-  MDefinition* environmentChain = current->environmentChain();
-  MDefinition* argsObj = info().needsArgsObj() ? current->argumentsObject()
-                                               : constant(Int32Value(0));
-
-  MGenerator* generator =
-      MGenerator::New(alloc(), callee, environmentChain, argsObj);
-
-  current->add(generator);
-  current->push(generator);
-  return resumeAfter(generator, loc);
+  return buildIC(loc, CacheKind::Generator, {});
 }
 
 bool WarpBuilder::build_AfterYield(BytecodeLocation loc) {
@@ -4171,6 +4160,16 @@ bool WarpBuilder::buildIC(BytecodeLocation loc, CacheKind kind,
       current->push(ins);
       return resumeAfter(ins, loc);
     }
+    case CacheKind::Generator: {
+      MDefinition* callee = getCallee();
+      MDefinition* env = current->environmentChain();
+      MDefinition* argsObj = info().needsArgsObj() ? current->argumentsObject()
+                                                   : constant(Int32Value(0));
+      auto* ins = MGenerator::New(alloc(), callee, env, argsObj);
+      current->add(ins);
+      current->push(ins);
+      return resumeAfter(ins, loc);
+    }
     case CacheKind::LazyConstant:
     case CacheKind::ToBool:
     case CacheKind::Call:
@@ -4210,6 +4209,7 @@ bool WarpBuilder::buildBailoutForColdIC(BytecodeLocation loc, CacheKind kind) {
     case CacheKind::NewArray:
     case CacheKind::NewObject:
     case CacheKind::Lambda:
+    case CacheKind::Generator:
       resultType = MIRType::Object;
       break;
     case CacheKind::TypeOf:

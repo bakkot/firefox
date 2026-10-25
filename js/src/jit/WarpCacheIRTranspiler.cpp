@@ -5067,6 +5067,15 @@ bool WarpCacheIRTranspiler::emitFrameIsConstructingResult() {
   return true;
 }
 
+bool WarpCacheIRTranspiler::emitLoadFrameCallee(ObjOperandId resultId) {
+  // Generators are never inlined.
+  MOZ_ASSERT(!builder_->inlineCallInfo());
+
+  auto* ins = MCallee::New(alloc());
+  add(ins);
+  return defineOperand(resultId, ins);
+}
+
 bool WarpCacheIRTranspiler::emitNewIteratorResult(
     MNewIterator::Type type, uint32_t templateObjectOffset) {
   JSObject* templateObj = tenuredObjectStubField(templateObjectOffset);
@@ -7313,6 +7322,32 @@ bool WarpCacheIRTranspiler::emitNewArrayObjectResult(uint32_t length,
 
   pushResult(obj);
   return true;
+}
+
+bool WarpCacheIRTranspiler::emitNewGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
+  MDefinition* callee = getOperand(calleeId);
+  Shape* shape = shapeStubField(shapeOffset);
+  Shape* stackStorageShape = shapeStubField(stackStorageShapeOffset);
+
+  MDefinition* env = currentBlock()->environmentChain();
+
+  // The environment chain must be an object, but the MIR type can be Value when
+  // phis are involved.
+  if (env->type() != MIRType::Object) {
+    MOZ_ASSERT(env->type() == MIRType::Value);
+    auto* unbox =
+        MUnbox::New(alloc(), env, MIRType::Object, MUnbox::Infallible);
+    current->add(unbox);
+    env = unbox;
+  }
+
+  auto* ins = MNewGeneratorObject::New(alloc(), callee, env, allocKind, shape,
+                                       stackStorageShape, stackStorageLength);
+  addEffectful(ins);
+  pushResult(ins);
+  return resumeAfter(ins);
 }
 
 bool WarpCacheIRTranspiler::emitNewFunctionCloneResult(uint32_t canonicalOffset,

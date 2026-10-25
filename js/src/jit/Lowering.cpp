@@ -7738,6 +7738,14 @@ void LIRGenerator::visitGenerator(MGenerator* ins) {
   assignSafepoint(lir, ins);
 }
 
+void LIRGenerator::visitNewGeneratorObject(MNewGeneratorObject* ins) {
+  auto* lir = new (alloc()) LNewGeneratorObject(
+      useRegister(ins->callee()), useRegister(ins->environmentChain()), temp(),
+      temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void LIRGenerator::visitAsyncResolve(MAsyncResolve* ins) {
   auto* lir = new (alloc()) LAsyncResolve(useRegisterAtStart(ins->generator()),
                                           useBoxAtStart(ins->value()));

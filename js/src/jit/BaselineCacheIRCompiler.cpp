@@ -775,6 +775,15 @@ bool BaselineCacheIRCompiler::emitFrameIsConstructingResult() {
   return true;
 }
 
+bool BaselineCacheIRCompiler::emitLoadFrameCallee(ObjOperandId resultId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  Register reg = allocator.defineRegister(masm, resultId);
+  Address tokenAddr(baselineFrameReg(), JitFrameLayout::offsetOfCalleeToken());
+  masm.loadFunctionFromCalleeToken(tokenAddr, reg);
+  return true;
+}
+
 bool BaselineCacheIRCompiler::emitLoadConstantStringResult(uint32_t strOffset) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
   AutoOutputRegister output(*this);
@@ -1915,6 +1924,7 @@ bool BaselineCacheIRCompiler::init(CacheKind kind) {
     case CacheKind::NewArray:
     case CacheKind::NewObject:
     case CacheKind::Lambda:
+    case CacheKind::Generator:
     case CacheKind::LazyConstant:
     case CacheKind::GetImport:
       MOZ_ASSERT(numInputs == 0);
@@ -3811,6 +3821,80 @@ bool BaselineCacheIRCompiler::emitNewFunctionCloneResult(
     using Fn =
         JSObject* (*)(JSContext*, HandleFunction, HandleObject, gc::AllocSite*);
     callVM<Fn, js::LambdaBaselineFallback>(masm);
+
+    stubFrame.leave(masm);
+    masm.storeCallPointerResult(result);
+  }
+
+  masm.bind(&done);
+  masm.tagValue(JSVAL_TYPE_OBJECT, result, output.valueReg());
+  return true;
+}
+
+bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  gc::AllocKind stackStorageAllocKind = GuessArrayGCKind(stackStorageLength);
+  uint32_t stackStorageCapacity =
+      GetGCKindSlots(stackStorageAllocKind) - ObjectElements::VALUES_PER_HEADER;
+  MOZ_ASSERT(stackStorageCapacity >= stackStorageLength);
+
+  AutoOutputRegister output(*this);
+  Register callee = allocator.useRegister(masm, calleeId);
+  AutoScratchRegisterMaybeOutput result(allocator, masm, output);
+  AutoScratchRegisterMaybeOutputType stackStorage(allocator, masm, output);
+  AutoScratchRegister scratch1(allocator, masm);
+  AutoScratchRegister scratch2(allocator, masm);
+
+  allocator.discardStack(masm);
+
+  Label done, fail;
+
+  // Debuggee frames must call DebugAPI::onNewGenerator.
+  Address flagsAddr(baselineFrameReg(), BaselineFrame::reverseOffsetOfFlags());
+  masm.branchTest32(Assembler::NonZero, flagsAddr,
+                    Imm32(BaselineFrame::DEBUGGEE), &fail);
+
+  // Allocate both objects in the nursery, so that no post barriers are needed.
+  masm.loadPtr(stubAddress(stackStorageShapeOffset), scratch2);
+  masm.createArrayWithFixedElements(
+      stackStorage, scratch2, scratch1, InvalidReg, stackStorageLength,
+      stackStorageCapacity, 0, 0, stackStorageAllocKind, gc::Heap::Default,
+      &fail);
+
+  masm.loadPtr(stubAddress(shapeOffset), scratch2);
+  masm.createPlainGCObject(result, scratch2, scratch1, scratch2,
+                           GetGCKindSlots(allocKind), 0, allocKind,
+                           gc::Heap::Default, &fail, AllocSiteInput());
+
+  masm.storeValue(
+      JSVAL_TYPE_OBJECT, callee,
+      Address(result, AbstractGeneratorObject::offsetOfCalleeOrModuleSlot()));
+  masm.loadPtr(Address(baselineFrameReg(),
+                       BaselineFrame::reverseOffsetOfEnvironmentChain()),
+               scratch1);
+  masm.storeValue(
+      JSVAL_TYPE_OBJECT, scratch1,
+      Address(result, AbstractGeneratorObject::offsetOfEnvironmentChainSlot()));
+  masm.storeValue(
+      JSVAL_TYPE_OBJECT, stackStorage,
+      Address(result, AbstractGeneratorObject::offsetOfStackStorageSlot()));
+  masm.jump(&done);
+
+  {
+    masm.bind(&fail);
+
+    masm.loadBaselineFramePtr(baselineFrameReg(), scratch2);
+
+    AutoStubFrame stubFrame(*this);
+    stubFrame.enter(masm, scratch1);
+
+    masm.Push(scratch2);
+
+    using Fn = JSObject* (*)(JSContext*, BaselineFrame*);
+    callVM<Fn, CreateGeneratorFromFrame>(masm);
 
     stubFrame.leave(masm);
     masm.storeCallPointerResult(result);

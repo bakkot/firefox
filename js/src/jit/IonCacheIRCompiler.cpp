@@ -570,6 +570,7 @@ bool IonCacheIRCompiler::init() {
     case CacheKind::NewArray:
     case CacheKind::NewObject:
     case CacheKind::Lambda:
+    case CacheKind::Generator:
     case CacheKind::GetImport:
       MOZ_CRASH("Unsupported IC");
   }
@@ -696,6 +697,7 @@ void IonCacheIRCompiler::assertFloatRegisterAvailable(FloatRegister reg) {
     case CacheKind::NewArray:
     case CacheKind::NewObject:
     case CacheKind::Lambda:
+    case CacheKind::Generator:
     case CacheKind::GetImport:
       MOZ_CRASH("Unsupported IC");
   }
@@ -1370,6 +1372,10 @@ bool IonCacheIRCompiler::emitProxyGetResult(ObjOperandId objId,
 }
 
 bool IonCacheIRCompiler::emitFrameIsConstructingResult() {
+  MOZ_CRASH("Baseline-specific op");
+}
+
+bool IonCacheIRCompiler::emitLoadFrameCallee(ObjOperandId resultId) {
   MOZ_CRASH("Baseline-specific op");
 }
 
@@ -2393,6 +2399,12 @@ bool IonCacheIRCompiler::emitNewPlainObjectResult(uint32_t numFixedSlots,
                                                   uint32_t shapeOffset,
                                                   uint32_t siteOffset) {
   MOZ_CRASH("NewObject ICs not used in ion");
+}
+
+bool IonCacheIRCompiler::emitNewGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
+  MOZ_CRASH("Generator ICs not used in ion");
 }
 
 bool IonCacheIRCompiler::emitNewFunctionCloneResult(uint32_t canonicalOffset,

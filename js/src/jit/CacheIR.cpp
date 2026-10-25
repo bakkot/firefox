@@ -55,6 +55,7 @@
 #include "vm/BytecodeUtil.h"
 #include "vm/Compartment.h"
 #include "vm/DateObject.h"
+#include "vm/GeneratorObject.h"
 #include "vm/Iteration.h"
 #include "vm/PlainObject.h"  // js::PlainObject
 #include "vm/ProxyObject.h"
@@ -65,6 +66,7 @@
 #include "vm/Watchtower.h"
 #include "wasm/WasmInstance.h"
 
+#include "gc/ObjectKind-inl.h"
 #include "jit/BaselineFrame-inl.h"
 #include "jit/MacroAssembler-inl.h"
 #include "vm/ArrayBufferObject-inl.h"
@@ -118,6 +120,7 @@ size_t js::jit::NumInputsForCacheKind(CacheKind kind) {
     case CacheKind::NewArray:
     case CacheKind::NewObject:
     case CacheKind::Lambda:
+    case CacheKind::Generator:
     case CacheKind::LazyConstant:
     case CacheKind::GetImport:
       return 0;
@@ -17055,6 +17058,90 @@ AttachDecision LambdaIRGenerator::tryAttachStub() {
 
   trackAttached(IRGenerator::NotAttached);
   return AttachDecision::NoAction;
+}
+
+GeneratorIRGenerator::GeneratorIRGenerator(
+    JSContext* cx, HandleScript script, jsbytecode* pc, ICState state,
+    Handle<AbstractGeneratorObject*> generator)
+    : IRGenerator(cx, script, pc, CacheKind::Generator, state),
+      generator_(generator) {}
+
+void GeneratorIRGenerator::trackAttached(const char* name) {
+  stubName_ = name ? name : "NotAttached";
+#ifdef JS_CACHEIR_SPEW
+  if (const CacheIRSpewer::Guard& sp = CacheIRSpewer::Guard(*this, name)) {
+    sp.valueProperty("generator", ObjectValue(*generator_));
+  }
+#endif
+}
+
+AttachDecision GeneratorIRGenerator::tryAttachStub() {
+  AutoAssertNoPendingException aanpe(cx_);
+
+  // Async functions and async generators have extra state that the stub
+  // doesn't initialize. Module generators have no callee.
+  if (!generator_->is<GeneratorObject>() || script_->needsArgsObj()) {
+    trackAttached(IRGenerator::NotAttached);
+    return AttachDecision::NoAction;
+  }
+
+  // Stub doesn't support metadata builder.
+  if (cx_->realm()->hasAllocationMetadataBuilder()) {
+    trackAttached(IRGenerator::NotAttached);
+    return AttachDecision::NoAction;
+  }
+
+  // The macro assembler only supports creating arrays with fixed elements.
+  ArrayObject& stackStorage = generator_->stackStorage();
+  if (stackStorage.hasDynamicElements()) {
+    trackAttached(IRGenerator::NotAttached);
+    return AttachDecision::NoAction;
+  }
+
+  JSFunction* callee = &generator_->callee();
+  Maybe<PropertyInfo> prototypeProp;
+  if (!callee->isSelfHostedBuiltin()) {
+    prototypeProp = callee->lookupPure(cx_->names().prototype);
+    if (prototypeProp.isNothing() || !prototypeProp->isDataProperty() ||
+        prototypeProp->slot() < callee->numFixedSlots()) {
+      trackAttached(IRGenerator::NotAttached);
+      return AttachDecision::NoAction;
+    }
+  }
+
+#ifdef DEBUG
+  writer.assertNoAllocationMetadataBuilder(
+      cx_->realm()->addressOfMetadataBuilder());
+#endif
+
+  ObjOperandId calleeId = writer.loadFrameCallee();
+
+  // Self-hosted generators always use the default prototype. Otherwise, guard
+  // on the callee's .prototype, which determines the generator's shape.
+  if (prototypeProp.isSome()) {
+    writer.guardShape(calleeId, callee->shape());
+
+    uint32_t slot = prototypeProp->slot();
+    uint32_t dynamicSlot = slot - callee->numFixedSlots();
+    const Value& prototype = callee->getSlot(slot);
+    if (prototype.isObject()) {
+      ObjOperandId prototypeId = writer.loadObject(&prototype.toObject());
+      writer.guardDynamicSlotIsSpecificObject(calleeId, prototypeId,
+                                              dynamicSlot);
+    } else {
+      writer.guardDynamicSlotIsNotObject(calleeId, dynamicSlot);
+    }
+  }
+
+  const JSClass* clasp = &GeneratorObject::class_;
+  MOZ_ASSERT(gc::GetObjectFinalizeKind(clasp) == gc::FinalizeKind::None);
+  gc::AllocKind allocKind = gc::GetGCObjectKind(clasp);
+
+  writer.newGeneratorObjectResult(calleeId, allocKind, generator_->shape(),
+                                  stackStorage.shape(), stackStorage.length());
+
+  trackAttached("Generator.Object");
+  return AttachDecision::Attach;
 }
 
 CloseIterIRGenerator::CloseIterIRGenerator(JSContext* cx, HandleScript script,

@@ -608,6 +608,7 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::CloseIter:
       case JSOp::OptimizeGetIterator:
       case JSOp::Lambda:
+      case JSOp::Generator:
         MOZ_TRY(maybeInlineIC(opSnapshots, loc));
         break;
       case JSOp::Call:
@@ -694,7 +695,6 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::CheckClassHeritage:
       case JSOp::CheckThis:
       case JSOp::CheckThisReinit:
-      case JSOp::Generator:
       case JSOp::AfterYield:
       case JSOp::FinalYieldRval:
       case JSOp::AsyncResolve:

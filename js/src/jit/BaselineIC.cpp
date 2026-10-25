@@ -29,6 +29,7 @@
 #include "vm/BytecodeLocation.h"
 #include "vm/BytecodeUtil.h"
 #include "vm/EqualityOperations.h"
+#include "vm/GeneratorObject.h"
 #include "vm/JSFunction.h"
 #include "vm/JSScript.h"
 #include "vm/Opcodes.h"
@@ -284,6 +285,8 @@ class MOZ_STATIC_CLASS OpToFallbackKindTable {
     setKind(JSOp::NewInit, BaselineICFallbackKind::NewObject);
 
     setKind(JSOp::Lambda, BaselineICFallbackKind::Lambda);
+
+    setKind(JSOp::Generator, BaselineICFallbackKind::Generator);
 
     setKind(JSOp::InitElem, BaselineICFallbackKind::SetElem);
     setKind(JSOp::InitHiddenElem, BaselineICFallbackKind::SetElem);
@@ -2625,6 +2628,40 @@ bool FallbackICCodeCompiler::emit_Lambda() {
   using Fn =
       bool (*)(JSContext*, BaselineFrame*, ICFallbackStub*, MutableHandleValue);
   return tailCallVM<Fn, DoLambdaFallback>(masm);
+}
+
+//
+// Generator_Fallback
+//
+
+bool DoGeneratorFallback(JSContext* cx, BaselineFrame* frame,
+                         ICFallbackStub* stub, MutableHandleValue res) {
+  stub->incrementEnteredCount();
+  MaybeNotifyWarp(frame->outerScript(), stub);
+  FallbackICSpew(cx, stub, "Generator");
+
+  JSObject* obj = AbstractGeneratorObject::createFromFrame(cx, frame);
+  if (!obj) {
+    return false;
+  }
+
+  Rooted<AbstractGeneratorObject*> generator(
+      cx, &obj->as<AbstractGeneratorObject>());
+  TryAttachStub<GeneratorIRGenerator>("Generator", cx, frame, stub, generator);
+
+  res.setObject(*generator);
+  return true;
+}
+
+bool FallbackICCodeCompiler::emit_Generator() {
+  EmitRestoreTailCallReg(masm);
+
+  masm.push(ICStubReg);
+  masm.pushBaselineFramePtr(FramePointer, R0.scratchReg());
+
+  using Fn =
+      bool (*)(JSContext*, BaselineFrame*, ICFallbackStub*, MutableHandleValue);
+  return tailCallVM<Fn, DoGeneratorFallback>(masm);
 }
 
 //

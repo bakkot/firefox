@@ -1960,7 +1960,7 @@
      *   Operands:
      *   Stack: => gen
      */ \
-    MACRO(Generator, generator, NULL, 1, 0, 1, JOF_BYTE|JOF_USES_ENV) \
+    MACRO(Generator, generator, NULL, 1, 0, 1, JOF_BYTE|JOF_USES_ENV|JOF_IC) \
     /*
      * Suspend the current generator and return to the caller.
      *

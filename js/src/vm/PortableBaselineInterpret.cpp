@@ -5659,6 +5659,13 @@ DEFINE_IC(Lambda, 0, {
   }
 });
 
+DEFINE_IC(Generator, 0, {
+  PUSH_FALLBACK_IC_FRAME();
+  if (!DoGeneratorFallback(cx, ctx.frame, fallback, &ctx.state.res)) {
+    goto error;
+  }
+});
+
 DEFINE_IC(LazyConstant, 0, {
   PUSH_FALLBACK_IC_FRAME();
   if (!DoLazyConstantFallback(cx, ctx.frame, fallback, &ctx.state.res)) {
@@ -8048,6 +8055,7 @@ PBIResult PortableBaselineInterpret(
           }
         }
         VIRTPUSH(StackVal(ObjectValue(*generator)));
+        NEXT_IC();
         END_OP(Generator);
       }
 

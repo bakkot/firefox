@@ -6298,17 +6298,10 @@ template <typename Handler>
 bool BaselineCodeGen<Handler>::emit_Generator() {
   frame.assertStackDepth(0);
 
-  masm.loadBaselineFramePtr(FramePointer, R0.scratchReg());
-
-  prepareVMCall();
-  pushArg(R0.scratchReg());
-
-  using Fn = JSObject* (*)(JSContext*, BaselineFrame*);
-  if (!callVM<Fn, jit::CreateGeneratorFromFrame>()) {
+  if (!emitNextIC()) {
     return false;
   }
 
-  masm.tagValue(JSVAL_TYPE_OBJECT, ReturnReg, R0);
   frame.push(R0);
   return true;
 }
