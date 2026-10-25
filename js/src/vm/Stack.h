@@ -269,10 +269,10 @@ enum MaybeConstruct { NO_CONSTRUCT = false, CONSTRUCT = true };
 // FrameDescriptor::IsResumingGenerator for the JITs). This flag is cleared by
 // JSOp::AfterYield and these slots must no longer be accessed after that point.
 //
-// The resumer stores the generator's resume index into ResumeIndexSlot and
-// then marks the generator running. Marking it running is the point where the
-// resume is committed, so it must be the last thing the resumer does before
-// control enters the callee's resume prologue.
+// The resumer stores the generator's tagged resume index into ResumeIndexSlot
+// and then marks the generator running. Dispatch masks out the yield* tag.
+// Marking it running commits the resume, so it must be the last thing the
+// resumer does before control enters the callee's resume prologue.
 struct ResumeFrameArgs {
   enum Slot : uint32_t {
     ResumeValueSlot = 0,

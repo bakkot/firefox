@@ -80,6 +80,9 @@ bool GeneratorResumeAnalysis::init() {
         return false;
       }
     } else if (loc.is(JSOp::AfterYield)) {
+      hasTaggedResumeIndices_ |=
+          (loc.getSuspendForAfterYield().getTaggedResumeIndex() &
+           RESUMEINDEX_ITER_RESULT_TAG) != 0;
       MOZ_ASSERT(loc.getSuspendForAfterYield().getResumeIndex() ==
                  numAfterYields_);
       MOZ_ASSERT(script_->resumeOffsets()[numAfterYields_] ==

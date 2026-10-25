@@ -223,6 +223,7 @@ class GeneratorResumeAnalysis {
   // The number of AfterYield ops in the script. Their resume indices are
   // [0, numAfterYields_).
   uint32_t numAfterYields_ = 0;
+  bool hasTaggedResumeIndices_ = false;
 
   // A [begin, end) slice of dispatchEntries_.
   struct DispatchEntryRange {
@@ -267,6 +268,7 @@ class GeneratorResumeAnalysis {
   [[nodiscard]] bool init();
 
   bool hasResumes() const { return numAfterYields_ > 0; }
+  bool hasTaggedResumeIndices() const { return hasTaggedResumeIndices_; }
 
   // The JSOp::AfterYield with this resume index.
   BytecodeLocation afterYieldLocationAt(uint32_t resumeIndex) const {

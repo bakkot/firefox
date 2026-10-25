@@ -554,9 +554,18 @@ bool WarpBuilder::buildResumeIndexDispatch(BytecodeLocation loc,
   }
 
   auto* resumeIndexVal = resumeFrameArg(ResumeFrameArgs::ResumeIndexSlot);
-  auto* resumeIndex = MUnbox::New(alloc(), resumeIndexVal, MIRType::Int32,
-                                  MUnbox::Mode::Infallible);
-  current->add(resumeIndex);
+  auto* unboxedResumeIndex = MUnbox::New(
+      alloc(), resumeIndexVal, MIRType::Int32, MUnbox::Mode::Infallible);
+  current->add(unboxedResumeIndex);
+  MDefinition* resumeIndex = unboxedResumeIndex;
+  if (resumeAnalysis_->hasTaggedResumeIndices()) {
+    auto* maskedIndex = MBitAnd::New(
+        alloc(), resumeIndex,
+        constant(Int32Value(int32_t(~RESUMEINDEX_ITER_RESULT_TAG))),
+        MIRType::Int32);
+    current->add(maskedIndex);
+    resumeIndex = maskedIndex;
+  }
 
   // If there are two possible targets, we can use a compare-and-branch. The
   // cases are ordered and the index must be in one of them, so compare against

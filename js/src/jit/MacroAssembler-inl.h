@@ -19,7 +19,6 @@
 #include "jit/JSJitFrameIter.h"
 #include "js/Prefs.h"
 #include "vm/BigIntType.h"
-#include "vm/BytecodeUtil.h"  // RESUMEINDEX_ITER_RESULT_TAG
 #include "vm/JSObject.h"
 #include "vm/ProxyObject.h"
 #include "vm/Runtime.h"
@@ -350,28 +349,7 @@ void MacroAssembler::pushGeneratorResumeArgsAndFormals(
   static_assert(ResumeFrameArgs::ResumeKindSlot == 2);
   static_assert(ResumeFrameArgs::GeneratorSlot == 1);
   static_assert(ResumeFrameArgs::ResumeValueSlot == 0);
-#ifdef JS_CODEGEN_ARM64
-  {
-    vixl::UseScratchRegisterScope temps(this);
-    Register scratch = temps.AcquireX().asUnsized();
-    MOZ_ASSERT(scratch != resumeIndex.base);
-    loadValue(resumeIndex, ValueOperand(scratch));
-    andPtr(Imm32(int32_t(~RESUMEINDEX_ITER_RESULT_TAG)), scratch);
-    pushValue(ValueOperand(scratch));
-  }
-#else
   pushValue(resumeIndex);
-
-  // The resumed frame uses the resume index to find its resume point, so mask
-  // out RESUMEINDEX_ITER_RESULT_TAG. The generator is suspended, so the slot
-  // holds an int32.
-  Address pushedResumeIndex(getStackPointer(), 0);
-#  ifdef JS_NUNBOX32
-  pushedResumeIndex = ToPayload(pushedResumeIndex);
-#  endif
-  and32(Imm32(int32_t(~RESUMEINDEX_ITER_RESULT_TAG)), pushedResumeIndex);
-#endif
-
   pushValue(resumeKind);
   pushValue(JSVAL_TYPE_OBJECT, generator);
   pushValue(resumeValue);

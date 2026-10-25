@@ -260,14 +260,14 @@ void AbstractGeneratorObject::resume(JSContext* cx,
   InterpreterFrame* fp = activation.regs().fp();
   fp->setResumingGenerator();
 
-  uint32_t resumeIndex = genObj->resumeIndex();
+  uint32_t taggedResumeIndex = genObj->taggedResumeIndex();
   genObj->setRunning();
 
   // Initialize the resume args (ResumeFrameArgs) stored after the formals (for
   // function frames) or immediately before the frame (for module frames).
   MOZ_ASSERT_IF(fp->isFunctionFrame(), fp->numActualArgs() == 0);
   ResumeFrameArgs::init(fp->resumeArgs(), arg, ObjectValue(*genObj), resumeKind,
-                        resumeIndex);
+                        taggedResumeIndex);
 
   if (genObj->hasArgsObj()) {
     fp->initArgsObj(genObj->argsObj());
@@ -282,7 +282,8 @@ void AbstractGeneratorObject::resume(JSContext* cx,
     storage->setDenseInitializedLength(0);
   }
 
-  uint32_t offset = script->resumeOffsets()[resumeIndex];
+  uint32_t offset =
+      script->resumeOffsets()[taggedResumeIndex & ~RESUMEINDEX_ITER_RESULT_TAG];
   activation.regs().pc = script->offsetToPC(offset);
 
   // Push arg and resumeKind Values on the generator's stack.

@@ -92,7 +92,7 @@ static EnterJitStatus JS_HAZ_JSNATIVE_CALLER EnterJit(JSContext* cx,
     AbstractGeneratorObject* genObj = resumeState.generator();
     ResumeFrameArgs::init(resumeArgv, resumeState.resumeValue(),
                           ObjectValue(*genObj), resumeState.resumeKind(),
-                          genObj->resumeIndex());
+                          genObj->taggedResumeIndex());
     numActualArgs = 0;
     constructing = false;
     maxArgc = std::size(resumeArgv);

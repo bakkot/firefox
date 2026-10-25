@@ -6623,6 +6623,7 @@ bool BaselineCodeGen<Handler>::emitGeneratorResumePrologueBody() {
 
   // Jump to the resume point.
   masm.unboxInt32(argResumeIndex, scratch2);
+  masm.and32(Imm32(int32_t(~RESUMEINDEX_ITER_RESULT_TAG)), scratch2);
   jumpToResumeEntry(scratch2, scratch1, scratch3);
   return true;
 }
