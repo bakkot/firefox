@@ -891,6 +891,9 @@ class JS::Realm : public JS::shadow::Realm {
     return offsetof(JS::Realm, debugModeBits_);
   }
   static constexpr uint32_t debugModeIsDebuggeeBit() { return IsDebuggee; }
+  static constexpr size_t offsetOfIsAsyncStackCapturingEnabled() {
+    return offsetof(JS::Realm, isAsyncStackCapturingEnabled);
+  }
 
   // Note: similar to cx->global(), JIT code can omit the read barrier for the
   // context's active global.

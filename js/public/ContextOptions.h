@@ -7,6 +7,8 @@
 #ifndef js_ContextOptions_h
 #define js_ContextOptions_h
 
+#include <stddef.h>  // offsetof, size_t
+
 #include "jstypes.h"  // JS_PUBLIC_API
 
 #include "js/CompileOptions.h"  // PrefableCompileOptions
@@ -29,11 +31,11 @@ class JS_PUBLIC_API ContextOptions {
         disableIon_(false),
         disableEvalSecurityChecks_(false),
         disableFilenameSecurityChecks_(false),
-        asyncStack_(true),
-        asyncStackCaptureDebuggeeOnly_(false),
         throwOnDebuggeeWouldRun_(true),
         dumpStackOnDebuggeeWouldRun_(false),
-        fuzzing_(false) {
+        fuzzing_(false),
+        asyncStack_(true),
+        asyncStackCaptureDebuggeeOnly_(false) {
   }
   // clang-format on
 
@@ -124,6 +126,13 @@ class JS_PUBLIC_API ContextOptions {
     return *this;
   }
 
+  static size_t offsetOfAsyncStack() {
+    return offsetof(ContextOptions, asyncStack_);
+  }
+  static size_t offsetOfAsyncStackCaptureDebuggeeOnly() {
+    return offsetof(ContextOptions, asyncStackCaptureDebuggeeOnly_);
+  }
+
   // Enable/disable support for parsing '//(#@) source(Mapping)?URL=' pragmas.
   bool sourcePragmas() const { return compileOptions_.sourcePragmas(); }
   ContextOptions& setSourcePragmas(bool flag) {
@@ -171,14 +180,16 @@ class JS_PUBLIC_API ContextOptions {
   // Runtime options.
   bool disableEvalSecurityChecks_ : 1;
   bool disableFilenameSecurityChecks_ : 1;
-  bool asyncStack_ : 1;
-  bool asyncStackCaptureDebuggeeOnly_ : 1;
   bool throwOnDebuggeeWouldRun_ : 1;
   bool dumpStackOnDebuggeeWouldRun_ : 1;
   bool fuzzing_ : 1;
 
   // Compile options.
   PrefableCompileOptions compileOptions_;
+
+  // Async stack options. These aren't bitfields because JIT code reads them.
+  bool asyncStack_;
+  bool asyncStackCaptureDebuggeeOnly_;
 };
 
 JS_PUBLIC_API ContextOptions& ContextOptionsRef(JSContext* cx);

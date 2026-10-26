@@ -51,6 +51,8 @@
 #include "util/DifferentialTesting.h"
 #include "util/Unicode.h"
 #include "vm/ArrayBufferObject.h"
+#include "vm/AsyncFunction.h"
+#include "vm/AsyncIteration.h"
 #include "vm/BoundFunctionObject.h"
 #include "vm/BytecodeUtil.h"
 #include "vm/Compartment.h"
@@ -17078,11 +17080,27 @@ void GeneratorIRGenerator::trackAttached(const char* name) {
 AttachDecision GeneratorIRGenerator::tryAttachStub() {
   AutoAssertNoPendingException aanpe(cx_);
 
-  // Async functions and async generators have extra state that the stub
-  // doesn't initialize. Module generators have no callee.
-  if (!generator_->is<GeneratorObject>() || script_->needsArgsObj()) {
+  // Module generators have no callee.
+  if (script_->isModule() || script_->needsArgsObj()) {
     trackAttached(IRGenerator::NotAttached);
     return AttachDecision::NoAction;
+  }
+
+  GeneratorObjectKind kind;
+  if (generator_->is<GeneratorObject>()) {
+    kind = GeneratorObjectKind::Generator;
+  } else if (generator_->is<AsyncGeneratorObject>()) {
+    kind = GeneratorObjectKind::AsyncGenerator;
+  } else {
+    MOZ_ASSERT(generator_->is<AsyncFunctionGeneratorObject>());
+    kind = GeneratorObjectKind::AsyncFunction;
+
+    // The stub falls back to the VM while async stacks are captured, so don't
+    // attach it now.
+    if (JS::IsAsyncStackCaptureEnabledForRealm(cx_)) {
+      trackAttached(IRGenerator::NotAttached);
+      return AttachDecision::NoAction;
+    }
   }
 
   // Stub doesn't support metadata builder.
@@ -17100,7 +17118,8 @@ AttachDecision GeneratorIRGenerator::tryAttachStub() {
 
   JSFunction* callee = &generator_->callee();
   Maybe<PropertyInfo> prototypeProp;
-  if (!callee->isSelfHostedBuiltin()) {
+  if (kind != GeneratorObjectKind::AsyncFunction &&
+      !callee->isSelfHostedBuiltin()) {
     prototypeProp = callee->lookupPure(cx_->names().prototype);
     if (prototypeProp.isNothing() || !prototypeProp->isDataProperty() ||
         prototypeProp->slot() < callee->numFixedSlots()) {
@@ -17116,8 +17135,9 @@ AttachDecision GeneratorIRGenerator::tryAttachStub() {
 
   ObjOperandId calleeId = writer.loadFrameCallee();
 
-  // Self-hosted generators always use the default prototype. Otherwise, guard
-  // on the callee's .prototype, which determines the generator's shape.
+  // Async functions and self-hosted generators always use the default
+  // prototype. Otherwise, guard on the callee's .prototype, which determines
+  // the generator's shape.
   if (prototypeProp.isSome()) {
     writer.guardShape(calleeId, callee->shape());
 
@@ -17133,14 +17153,30 @@ AttachDecision GeneratorIRGenerator::tryAttachStub() {
     }
   }
 
-  const JSClass* clasp = &GeneratorObject::class_;
+  const JSClass* clasp = generator_->getClass();
   MOZ_ASSERT(gc::GetObjectFinalizeKind(clasp) == gc::FinalizeKind::None);
   gc::AllocKind allocKind = gc::GetGCObjectKind(clasp);
 
-  writer.newGeneratorObjectResult(calleeId, allocKind, generator_->shape(),
-                                  stackStorage.shape(), stackStorage.length());
-
-  trackAttached("Generator.Object");
+  switch (kind) {
+    case GeneratorObjectKind::Generator:
+    case GeneratorObjectKind::AsyncGenerator:
+      writer.newGeneratorObjectResult(
+          calleeId, allocKind, generator_->shape(), stackStorage.shape(),
+          stackStorage.length(), kind == GeneratorObjectKind::AsyncGenerator);
+      trackAttached(kind == GeneratorObjectKind::Generator
+                        ? "Generator.Object"
+                        : "Generator.AsyncGenerator");
+      break;
+    case GeneratorObjectKind::AsyncFunction: {
+      PromiseObject* promise =
+          generator_->as<AsyncFunctionGeneratorObject>().promise();
+      writer.newAsyncFunctionGeneratorObjectResult(
+          calleeId, allocKind, generator_->shape(), stackStorage.shape(),
+          stackStorage.length(), promise->shape());
+      trackAttached("Generator.AsyncFunction");
+      break;
+    }
+  }
   return AttachDecision::Attach;
 }
 

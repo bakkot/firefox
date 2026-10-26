@@ -37,6 +37,8 @@ using namespace js;
 using namespace js::jit;
 
 using mozilla::Maybe;
+using mozilla::Nothing;
+using mozilla::Some;
 
 using JS::ExpandoAndGeneration;
 
@@ -3831,11 +3833,10 @@ bool BaselineCacheIRCompiler::emitNewFunctionCloneResult(
   return true;
 }
 
-bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
-    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
-    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-
+bool BaselineCacheIRCompiler::emitNewGeneratorObjectShared(
+    ObjOperandId calleeId, GeneratorObjectKind kind, gc::AllocKind allocKind,
+    uint32_t shapeOffset, uint32_t stackStorageShapeOffset,
+    uint32_t stackStorageLength, Maybe<uint32_t> promiseShapeOffset) {
   AutoOutputRegister output(*this);
   Register callee = allocator.useRegister(masm, calleeId);
   AutoScratchRegisterMaybeOutput result(allocator, masm, output);
@@ -3852,10 +3853,13 @@ bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
   masm.branchTest32(Assembler::NonZero, flagsAddr,
                     Imm32(BaselineFrame::DEBUGGEE), &fail);
 
-  masm.createGeneratorObject(result, callee, scratch0, scratch1, scratch2,
-                             allocKind, stubAddress(shapeOffset),
-                             stubAddress(stackStorageShapeOffset),
-                             stackStorageLength, &fail, AllocSiteInput());
+  masm.createGeneratorObject(
+      result, callee, scratch0, scratch1, scratch2, kind, allocKind,
+      stubAddress(shapeOffset), stubAddress(stackStorageShapeOffset),
+      stackStorageLength, promiseShapeOffset.map([&](uint32_t offset) {
+        return stubAddress(offset);
+      }),
+      &fail, AllocSiteInput());
 
   masm.loadPtr(Address(baselineFrameReg(),
                        BaselineFrame::reverseOffsetOfEnvironmentChain()),
@@ -3885,6 +3889,29 @@ bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
   masm.bind(&done);
   masm.tagValue(JSVAL_TYPE_OBJECT, result, output.valueReg());
   return true;
+}
+
+bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength,
+    bool isAsyncGenerator) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  GeneratorObjectKind kind = isAsyncGenerator
+                                 ? GeneratorObjectKind::AsyncGenerator
+                                 : GeneratorObjectKind::Generator;
+  return emitNewGeneratorObjectShared(calleeId, kind, allocKind, shapeOffset,
+                                      stackStorageShapeOffset,
+                                      stackStorageLength, Nothing());
+}
+
+bool BaselineCacheIRCompiler::emitNewAsyncFunctionGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength,
+    uint32_t promiseShapeOffset) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  return emitNewGeneratorObjectShared(
+      calleeId, GeneratorObjectKind::AsyncFunction, allocKind, shapeOffset,
+      stackStorageShapeOffset, stackStorageLength, Some(promiseShapeOffset));
 }
 
 bool BaselineCacheIRCompiler::emitCloseIterScriptedResult(

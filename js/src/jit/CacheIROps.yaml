@@ -3463,6 +3463,19 @@
     shape: ShapeField
     stackStorageShape: ShapeField
     stackStorageLength: UInt32Imm
+    isAsyncGenerator: BoolImm
+
+- name: NewAsyncFunctionGeneratorObjectResult
+  shared: false
+  transpile: true
+  cost_estimate: 5
+  args:
+    callee: ObjId
+    allocKind: AllocKindImm
+    shape: ShapeField
+    stackStorageShape: ShapeField
+    stackStorageLength: UInt32Imm
+    promiseShape: ShapeField
 
 - name: ConcatStringsResult
   shared: true

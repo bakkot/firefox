@@ -21973,11 +21973,15 @@ void CodeGenerator::visitNewGeneratorObject(LNewGeneratorObject* lir) {
               environmentChain, ImmPtr(nullptr)),
       StoreRegisterTo(output));
 
-  masm.createGeneratorObject(output, callee, temp0, temp1, temp2,
-                             mir->allocKind(), ImmGCPtr(mir->shape()),
-                             ImmGCPtr(mir->stackStorageShape()),
-                             mir->stackStorageLength(), ool->entry(),
-                             AllocSiteInput(gc::CatchAllAllocSite::Optimized));
+  Maybe<ImmGCPtr> promiseShape;
+  if (mir->promiseShape()) {
+    promiseShape.emplace(mir->promiseShape());
+  }
+  masm.createGeneratorObject(
+      output, callee, temp0, temp1, temp2, mir->kind(), mir->allocKind(),
+      ImmGCPtr(mir->shape()), ImmGCPtr(mir->stackStorageShape()),
+      mir->stackStorageLength(), promiseShape, ool->entry(),
+      AllocSiteInput(gc::CatchAllAllocSite::Optimized));
   masm.storeValue(
       JSVAL_TYPE_OBJECT, environmentChain,
       Address(output, AbstractGeneratorObject::offsetOfEnvironmentChainSlot()));

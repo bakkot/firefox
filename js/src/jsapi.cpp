@@ -5091,6 +5091,7 @@ JS_PUBLIC_API bool JS::CaptureCurrentStack(
   return true;
 }
 
+// Keep in sync with MacroAssembler::branchIfAsyncStackCaptureEnabled.
 JS_PUBLIC_API bool JS::IsAsyncStackCaptureEnabledForRealm(JSContext* cx) {
   if (!cx->options().asyncStack()) {
     return false;

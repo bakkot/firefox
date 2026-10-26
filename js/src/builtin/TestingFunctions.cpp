@@ -3709,6 +3709,21 @@ static bool CallFunctionWithAsyncStack(JSContext* cx, unsigned argc,
               args.rval());
 }
 
+static bool SetAsyncStackOptions(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  if (args.length() != 2) {
+    JS_ReportErrorASCII(cx, "The function takes exactly two arguments.");
+    return false;
+  }
+
+  JS::ContextOptionsRef(cx)
+      .setAsyncStack(ToBoolean(args[0]))
+      .setAsyncStackCaptureDebuggeeOnly(ToBoolean(args[1]));
+  args.rval().setUndefined();
+  return true;
+}
+
 static bool EnableTrackAllocations(JSContext* cx, unsigned argc, Value* vp) {
   SetAllocationMetadataBuilder(cx, &SavedStacks::metadataBuilder);
   return true;
@@ -11650,6 +11665,10 @@ JS_FN_HELP("supportDifferentialTesting", TestingFunc_SupportDifferentialTesting,
 
 // clang-format off
 static const JSFunctionSpecWithHelp FuzzingUnsafeTestingFunctions[] = {
+JS_FN_HELP("setAsyncStackOptions", SetAsyncStackOptions, 2, 0,
+"setAsyncStackOptions(asyncStack, captureDebuggeeOnly)",
+"  Set the context's asyncStack and asyncStackCaptureDebuggeeOnly options."),
+
 JS_FN_HELP("getErrorNotes", GetErrorNotes, 1, 0,
 "getErrorNotes(error)",
 "  Returns an array of error notes."),

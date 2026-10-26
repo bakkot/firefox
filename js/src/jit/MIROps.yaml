@@ -3779,17 +3779,20 @@
 - name: Generator
   gen_boilerplate: false
 
-# Allocates a new GeneratorObject and its stack storage array. This tries an
-# inline allocation and falls back to a VM call.
+# Allocates a new generator object, its stack storage array and, for async
+# functions, its result promise. This tries an inline allocation and falls back
+# to a VM call. promiseShape is nullptr unless kind is AsyncFunction.
 - name: NewGeneratorObject
   operands:
     callee: Object
     environmentChain: Object
   arguments:
+    kind: GeneratorObjectKind
     allocKind: gc::AllocKind
     shape: Shape*
     stackStorageShape: Shape*
     stackStorageLength: uint32_t
+    promiseShape: Shape*
   result_type: Object
   generate_lir: true
   lir_temps: 3

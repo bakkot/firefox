@@ -318,6 +318,10 @@ class AsyncFunctionGeneratorObject : public AbstractGeneratorObject {
   static AsyncFunctionGeneratorObject* create(JSContext* cx,
                                               Handle<ModuleObject*> module);
 
+  static size_t offsetOfPromiseSlot() {
+    return getFixedSlotOffsetTyped(PROMISE_SLOT);
+  }
+
   PromiseObject* promise() {
     return &getFixedSlotTyped(PROMISE_SLOT).toObject().as<PromiseObject>();
   }

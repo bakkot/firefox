@@ -25,6 +25,12 @@ class TaggedParserAtomIndex;
 
 extern const JSClass GeneratorFunctionClass;
 
+enum class GeneratorObjectKind : uint8_t {
+  Generator,
+  AsyncGenerator,
+  AsyncFunction,
+};
+
 class AbstractGeneratorObject : public NativeObject {
  public:
   // Magic value stored in the resumeIndex slot when the generator is

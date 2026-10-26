@@ -252,6 +252,11 @@ class MOZ_RAII WarpCacheIRTranspiler : public WarpBuilderShared {
 
   [[nodiscard]] bool emitTruthyResult(OperandId inputId);
 
+  [[nodiscard]] bool emitNewGeneratorObject(
+      ObjOperandId calleeId, GeneratorObjectKind kind, gc::AllocKind allocKind,
+      Shape* shape, Shape* stackStorageShape, uint32_t stackStorageLength,
+      Shape* promiseShape);
+
   [[nodiscard]] bool emitNewIteratorResult(MNewIterator::Type type,
                                            uint32_t templateObjectOffset);
 
@@ -7326,10 +7331,31 @@ bool WarpCacheIRTranspiler::emitNewArrayObjectResult(uint32_t length,
 
 bool WarpCacheIRTranspiler::emitNewGeneratorObjectResult(
     ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
-    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength,
+    bool isAsyncGenerator) {
+  GeneratorObjectKind kind = isAsyncGenerator
+                                 ? GeneratorObjectKind::AsyncGenerator
+                                 : GeneratorObjectKind::Generator;
+  return emitNewGeneratorObject(
+      calleeId, kind, allocKind, shapeStubField(shapeOffset),
+      shapeStubField(stackStorageShapeOffset), stackStorageLength, nullptr);
+}
+
+bool WarpCacheIRTranspiler::emitNewAsyncFunctionGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength,
+    uint32_t promiseShapeOffset) {
+  return emitNewGeneratorObject(
+      calleeId, GeneratorObjectKind::AsyncFunction, allocKind,
+      shapeStubField(shapeOffset), shapeStubField(stackStorageShapeOffset),
+      stackStorageLength, shapeStubField(promiseShapeOffset));
+}
+
+bool WarpCacheIRTranspiler::emitNewGeneratorObject(
+    ObjOperandId calleeId, GeneratorObjectKind kind, gc::AllocKind allocKind,
+    Shape* shape, Shape* stackStorageShape, uint32_t stackStorageLength,
+    Shape* promiseShape) {
   MDefinition* callee = getOperand(calleeId);
-  Shape* shape = shapeStubField(shapeOffset);
-  Shape* stackStorageShape = shapeStubField(stackStorageShapeOffset);
 
   MDefinition* env = currentBlock()->environmentChain();
 
@@ -7343,8 +7369,9 @@ bool WarpCacheIRTranspiler::emitNewGeneratorObjectResult(
     env = unbox;
   }
 
-  auto* ins = MNewGeneratorObject::New(alloc(), callee, env, allocKind, shape,
-                                       stackStorageShape, stackStorageLength);
+  auto* ins = MNewGeneratorObject::New(alloc(), callee, env, kind, allocKind,
+                                       shape, stackStorageShape,
+                                       stackStorageLength, promiseShape);
   addEffectful(ins);
   pushResult(ins);
   return resumeAfter(ins);

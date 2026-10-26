@@ -451,6 +451,7 @@ struct JS_PUBLIC_API JSContext : public JS::RootingContext,
            js::UnprotectedData<JSRuntime*>::offsetOfValue();
   }
   static size_t offsetOfRealm() { return offsetof(JSContext, realm_); }
+  static size_t offsetOfOptions() { return offsetof(JSContext, options_); }
 
   friend class JS::AutoSaveExceptionState;
   friend class js::jit::DebugModeOSRVolatileJitFrameIter;

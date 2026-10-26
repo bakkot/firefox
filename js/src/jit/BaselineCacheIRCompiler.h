@@ -165,6 +165,11 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler {
                                       ObjOperandId trapId, IdType id,
                                       uint32_t nargsAndFlags);
 
+  bool emitNewGeneratorObjectShared(
+      ObjOperandId calleeId, GeneratorObjectKind kind, gc::AllocKind allocKind,
+      uint32_t shapeOffset, uint32_t stackStorageShapeOffset,
+      uint32_t stackStorageLength, mozilla::Maybe<uint32_t> promiseShapeOffset);
+
   BaselineICPerfSpewer perfSpewer_;
 
  public:

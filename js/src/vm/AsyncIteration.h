@@ -400,6 +400,16 @@ class AsyncGeneratorObject : public AbstractGeneratorObject {
     setFixedSlotTyped(Slot_State, Int32Value(state_));
   }
 
+  static size_t offsetOfStateSlot() {
+    return getFixedSlotOffsetTyped(Slot_State);
+  }
+  static size_t offsetOfQueueOrRequestSlot() {
+    return getFixedSlotOffsetTyped(Slot_QueueOrRequest);
+  }
+  static size_t offsetOfCachedRequestSlot() {
+    return getFixedSlotOffsetTyped(Slot_CachedRequest);
+  }
+
  private:
   // Queue is implemented in 2 ways.  If only one request is queued ever,
   // request is stored directly to the slot.  Once 2 requests are queued, a

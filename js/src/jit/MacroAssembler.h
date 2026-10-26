@@ -217,6 +217,7 @@ namespace js {
 
 class StaticStrings;
 class FixedLengthTypedArrayObject;
+enum class GeneratorObjectKind : uint8_t;
 
 namespace wasm {
 class CalleeDesc;
@@ -5308,6 +5309,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   void loadJSContext(Register dest);
 
+  // Branch if promises created now in the current realm need an async stack.
+  void branchIfAsyncStackCaptureEnabled(Register temp, Label* label);
+
   void loadGlobalObjectData(Register dest);
 
   void loadRealmFuse(RealmFuses::FuseIndex index, Register dest);
@@ -5911,16 +5915,19 @@ class MacroAssembler : public MacroAssemblerSpecific {
                            gc::AllocKind allocKind, Label* fail,
                            const AllocSiteInput& allocSite);
 
-  // Allocate a generator object and its stack storage array in the nursery.
-  // The caller must initialize the environment chain slot. ShapeOperand is
-  // either an ImmGCPtr or the Address of a shape stored in IC stub data.
+  // Allocate a generator object, its stack storage array and, for async
+  // functions, its result promise in the nursery. The caller must initialize
+  // the environment chain slot. ShapeOperand is either an ImmGCPtr or the
+  // Address of a shape stored in IC stub data. promiseShape must be given
+  // exactly for async functions.
   template <typename ShapeOperand>
   void createGeneratorObject(Register result, Register callee, Register temp0,
                              Register temp1, Register temp2,
-                             gc::AllocKind allocKind, ShapeOperand shape,
-                             ShapeOperand stackStorageShape,
-                             uint32_t stackStorageLength, Label* fail,
-                             const AllocSiteInput& allocSite);
+                             GeneratorObjectKind kind, gc::AllocKind allocKind,
+                             ShapeOperand shape, ShapeOperand stackStorageShape,
+                             uint32_t stackStorageLength,
+                             mozilla::Maybe<ShapeOperand> promiseShape,
+                             Label* fail, const AllocSiteInput& allocSite);
 
   void initGCThing(Register obj, Register temp,
                    const TemplateObject& templateObj, bool initContents = true);

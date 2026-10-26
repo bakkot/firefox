@@ -100,6 +100,11 @@ class PromiseObject : public NativeObject {
   static const unsigned RESERVED_SLOTS = 4;
   static const JSClass class_;
   static const JSClass protoClass_;
+
+  static size_t offsetOfFlagsSlot() {
+    return getFixedSlotOffsetTyped(FLAGS_SLOT);
+  }
+
   static PromiseObject* create(JSContext* cx, JS::Handle<JSObject*> executor,
                                JS::Handle<JSObject*> proto = nullptr,
                                bool needsWrapping = false);

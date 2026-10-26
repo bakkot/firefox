@@ -2403,7 +2403,15 @@ bool IonCacheIRCompiler::emitNewPlainObjectResult(uint32_t numFixedSlots,
 
 bool IonCacheIRCompiler::emitNewGeneratorObjectResult(
     ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
-    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength,
+    bool isAsyncGenerator) {
+  MOZ_CRASH("Generator ICs not used in ion");
+}
+
+bool IonCacheIRCompiler::emitNewAsyncFunctionGeneratorObjectResult(
+    ObjOperandId calleeId, gc::AllocKind allocKind, uint32_t shapeOffset,
+    uint32_t stackStorageShapeOffset, uint32_t stackStorageLength,
+    uint32_t promiseShapeOffset) {
   MOZ_CRASH("Generator ICs not used in ion");
 }
 

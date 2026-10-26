@@ -35,6 +35,8 @@
 #include "util/Unicode.h"
 #include "vm/ArgumentsObject.h"
 #include "vm/ArrayBufferViewObject.h"
+#include "vm/AsyncFunction.h"
+#include "vm/AsyncIteration.h"
 #include "vm/BoundFunctionObject.h"
 #include "vm/DateObject.h"
 #include "vm/DateTime.h"
@@ -44,6 +46,7 @@
 #include "vm/Iteration.h"
 #include "vm/JSContext.h"
 #include "vm/JSFunction.h"
+#include "vm/PromiseObject.h"
 #include "vm/StringType.h"
 #include "vm/TypedArrayObject.h"
 #include "wasm/WasmBuiltins.h"
@@ -56,6 +59,7 @@
 #include "wasm/WasmTypeDef.h"
 #include "wasm/WasmValidate.h"
 
+#include "gc/ObjectKind-inl.h"
 #include "jit/MacroAssembler-inl.h"
 #include "jit/TemplateObject-inl.h"
 #include "vm/BytecodeUtil-inl.h"
@@ -608,9 +612,10 @@ void MacroAssembler::createFunctionClone(Register result, Register canonical,
 template <typename ShapeOperand>
 void MacroAssembler::createGeneratorObject(
     Register result, Register callee, Register temp0, Register temp1,
-    Register temp2, gc::AllocKind allocKind, ShapeOperand shape,
-    ShapeOperand stackStorageShape, uint32_t stackStorageLength, Label* fail,
-    const AllocSiteInput& allocSite) {
+    Register temp2, GeneratorObjectKind kind, gc::AllocKind allocKind,
+    ShapeOperand shape, ShapeOperand stackStorageShape,
+    uint32_t stackStorageLength, mozilla::Maybe<ShapeOperand> promiseShape,
+    Label* fail, const AllocSiteInput& allocSite) {
   auto loadShape = [&](ShapeOperand operand, Register dest) {
     if constexpr (std::is_same_v<ShapeOperand, Address>) {
       loadPtr(operand, dest);
@@ -618,6 +623,14 @@ void MacroAssembler::createGeneratorObject(
       movePtr(operand, dest);
     }
   };
+
+  MOZ_ASSERT(promiseShape.isSome() ==
+             (kind == GeneratorObjectKind::AsyncFunction));
+
+  // Promises created while async stack capture is enabled need debug info.
+  if (kind == GeneratorObjectKind::AsyncFunction) {
+    branchIfAsyncStackCaptureEnabled(temp1, fail);
+  }
 
   gc::AllocKind stackStorageAllocKind = GuessArrayGCKind(stackStorageLength);
   uint32_t stackStorageCapacity =
@@ -642,18 +655,58 @@ void MacroAssembler::createGeneratorObject(
   storeValue(
       JSVAL_TYPE_OBJECT, stackStorage,
       Address(result, AbstractGeneratorObject::offsetOfStackStorageSlot()));
+
+  switch (kind) {
+    case GeneratorObjectKind::Generator:
+      break;
+    case GeneratorObjectKind::AsyncGenerator:
+      storeValue(Int32Value(AsyncGeneratorObject::State_SuspendedStart),
+                 Address(result, AsyncGeneratorObject::offsetOfStateSlot()));
+      storeValue(
+          NullValue(),
+          Address(result, AsyncGeneratorObject::offsetOfQueueOrRequestSlot()));
+      storeValue(
+          NullValue(),
+          Address(result, AsyncGeneratorObject::offsetOfCachedRequestSlot()));
+      break;
+    case GeneratorObjectKind::AsyncFunction: {
+      storeValue(
+          Int32Value(AbstractGeneratorObject::RESUME_INDEX_RUNNING),
+          Address(result, AbstractGeneratorObject::offsetOfResumeIndexSlot()));
+
+      const JSClass* promiseClass = &PromiseObject::class_;
+      MOZ_ASSERT(gc::GetObjectFinalizeKind(promiseClass) ==
+                 gc::FinalizeKind::None);
+      gc::AllocKind promiseAllocKind = gc::GetGCObjectKind(promiseClass);
+
+      Register promise = temp0;
+      loadShape(*promiseShape, temp1);
+      createPlainGCObject(promise, temp1, temp2, temp1,
+                          GetGCKindSlots(promiseAllocKind), 0, promiseAllocKind,
+                          gc::Heap::Default, fail, allocSite);
+      storeValue(Int32Value(PROMISE_FLAG_DEFAULT_RESOLVING_FUNCTIONS |
+                            PROMISE_FLAG_ASYNC),
+                 Address(promise, PromiseObject::offsetOfFlagsSlot()));
+      storeValue(
+          JSVAL_TYPE_OBJECT, promise,
+          Address(result, AsyncFunctionGeneratorObject::offsetOfPromiseSlot()));
+      break;
+    }
+  }
 }
 
 template void MacroAssembler::createGeneratorObject<Address>(
     Register result, Register callee, Register temp0, Register temp1,
-    Register temp2, gc::AllocKind allocKind, Address shape,
-    Address stackStorageShape, uint32_t stackStorageLength, Label* fail,
+    Register temp2, GeneratorObjectKind kind, gc::AllocKind allocKind,
+    Address shape, Address stackStorageShape, uint32_t stackStorageLength,
+    mozilla::Maybe<Address> promiseShape, Label* fail,
     const AllocSiteInput& allocSite);
 
 template void MacroAssembler::createGeneratorObject<ImmGCPtr>(
     Register result, Register callee, Register temp0, Register temp1,
-    Register temp2, gc::AllocKind allocKind, ImmGCPtr shape,
-    ImmGCPtr stackStorageShape, uint32_t stackStorageLength, Label* fail,
+    Register temp2, GeneratorObjectKind kind, gc::AllocKind allocKind,
+    ImmGCPtr shape, ImmGCPtr stackStorageShape, uint32_t stackStorageLength,
+    mozilla::Maybe<ImmGCPtr> promiseShape, Label* fail,
     const AllocSiteInput& allocSite);
 
 // Inline version of Nursery::allocateString.
@@ -2828,6 +2881,33 @@ void MacroAssembler::isCallableOrConstructor(bool isCallable, Register obj,
 
 void MacroAssembler::loadJSContext(Register dest) {
   movePtr(ImmPtr(runtime()->mainContextPtr()), dest);
+}
+
+void MacroAssembler::branchIfAsyncStackCaptureEnabled(Register temp,
+                                                      Label* label) {
+  // Keep in sync with JS::IsAsyncStackCaptureEnabledForRealm.
+  static_assert(sizeof(bool) == 1);
+  Label disabled;
+  loadJSContext(temp);
+  size_t optionsOffset = JSContext::offsetOfOptions();
+  branch8(
+      Assembler::Equal,
+      Address(temp, optionsOffset + JS::ContextOptions::offsetOfAsyncStack()),
+      Imm32(0), &disabled);
+  branch8(
+      Assembler::Equal,
+      Address(temp,
+              optionsOffset +
+                  JS::ContextOptions::offsetOfAsyncStackCaptureDebuggeeOnly()),
+      Imm32(0), label);
+  loadPtr(Address(temp, JSContext::offsetOfRealm()), temp);
+  branchTest32(Assembler::NonZero,
+               Address(temp, Realm::offsetOfDebugModeBits()),
+               Imm32(Realm::debugModeIsDebuggeeBit()), label);
+  branch8(Assembler::NotEqual,
+          Address(temp, Realm::offsetOfIsAsyncStackCapturingEnabled()),
+          Imm32(0), label);
+  bind(&disabled);
 }
 
 static const uint8_t* ContextRealmPtr(CompileRuntime* rt) {
