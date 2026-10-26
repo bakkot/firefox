@@ -605,6 +605,57 @@ void MacroAssembler::createFunctionClone(Register result, Register canonical,
   }
 }
 
+template <typename ShapeOperand>
+void MacroAssembler::createGeneratorObject(
+    Register result, Register callee, Register temp0, Register temp1,
+    Register temp2, gc::AllocKind allocKind, ShapeOperand shape,
+    ShapeOperand stackStorageShape, uint32_t stackStorageLength, Label* fail,
+    const AllocSiteInput& allocSite) {
+  auto loadShape = [&](ShapeOperand operand, Register dest) {
+    if constexpr (std::is_same_v<ShapeOperand, Address>) {
+      loadPtr(operand, dest);
+    } else {
+      movePtr(operand, dest);
+    }
+  };
+
+  gc::AllocKind stackStorageAllocKind = GuessArrayGCKind(stackStorageLength);
+  uint32_t stackStorageCapacity =
+      GetGCKindSlots(stackStorageAllocKind) - ObjectElements::VALUES_PER_HEADER;
+  MOZ_ASSERT(stackStorageCapacity >= stackStorageLength);
+
+  // All objects are allocated in the nursery, so no post barriers are needed.
+  Register stackStorage = temp0;
+  loadShape(stackStorageShape, temp1);
+  createArrayWithFixedElements(stackStorage, temp1, temp2, InvalidReg,
+                               stackStorageLength, stackStorageCapacity, 0, 0,
+                               stackStorageAllocKind, gc::Heap::Default, fail,
+                               allocSite);
+
+  loadShape(shape, temp1);
+  createPlainGCObject(result, temp1, temp2, temp1, GetGCKindSlots(allocKind), 0,
+                      allocKind, gc::Heap::Default, fail, allocSite);
+
+  storeValue(
+      JSVAL_TYPE_OBJECT, callee,
+      Address(result, AbstractGeneratorObject::offsetOfCalleeOrModuleSlot()));
+  storeValue(
+      JSVAL_TYPE_OBJECT, stackStorage,
+      Address(result, AbstractGeneratorObject::offsetOfStackStorageSlot()));
+}
+
+template void MacroAssembler::createGeneratorObject<Address>(
+    Register result, Register callee, Register temp0, Register temp1,
+    Register temp2, gc::AllocKind allocKind, Address shape,
+    Address stackStorageShape, uint32_t stackStorageLength, Label* fail,
+    const AllocSiteInput& allocSite);
+
+template void MacroAssembler::createGeneratorObject<ImmGCPtr>(
+    Register result, Register callee, Register temp0, Register temp1,
+    Register temp2, gc::AllocKind allocKind, ImmGCPtr shape,
+    ImmGCPtr stackStorageShape, uint32_t stackStorageLength, Label* fail,
+    const AllocSiteInput& allocSite);
+
 // Inline version of Nursery::allocateString.
 void MacroAssembler::nurseryAllocateString(Register result, Register temp,
                                            gc::AllocKind allocKind,

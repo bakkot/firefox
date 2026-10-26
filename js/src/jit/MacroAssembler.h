@@ -5911,6 +5911,17 @@ class MacroAssembler : public MacroAssemblerSpecific {
                            gc::AllocKind allocKind, Label* fail,
                            const AllocSiteInput& allocSite);
 
+  // Allocate a generator object and its stack storage array in the nursery.
+  // The caller must initialize the environment chain slot. ShapeOperand is
+  // either an ImmGCPtr or the Address of a shape stored in IC stub data.
+  template <typename ShapeOperand>
+  void createGeneratorObject(Register result, Register callee, Register temp0,
+                             Register temp1, Register temp2,
+                             gc::AllocKind allocKind, ShapeOperand shape,
+                             ShapeOperand stackStorageShape,
+                             uint32_t stackStorageLength, Label* fail,
+                             const AllocSiteInput& allocSite);
+
   void initGCThing(Register obj, Register temp,
                    const TemplateObject& templateObj, bool initContents = true);
 

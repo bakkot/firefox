@@ -3836,15 +3836,10 @@ bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
     uint32_t stackStorageShapeOffset, uint32_t stackStorageLength) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
 
-  gc::AllocKind stackStorageAllocKind = GuessArrayGCKind(stackStorageLength);
-  uint32_t stackStorageCapacity =
-      GetGCKindSlots(stackStorageAllocKind) - ObjectElements::VALUES_PER_HEADER;
-  MOZ_ASSERT(stackStorageCapacity >= stackStorageLength);
-
   AutoOutputRegister output(*this);
   Register callee = allocator.useRegister(masm, calleeId);
   AutoScratchRegisterMaybeOutput result(allocator, masm, output);
-  AutoScratchRegisterMaybeOutputType stackStorage(allocator, masm, output);
+  AutoScratchRegisterMaybeOutputType scratch0(allocator, masm, output);
   AutoScratchRegister scratch1(allocator, masm);
   AutoScratchRegister scratch2(allocator, masm);
 
@@ -3857,30 +3852,17 @@ bool BaselineCacheIRCompiler::emitNewGeneratorObjectResult(
   masm.branchTest32(Assembler::NonZero, flagsAddr,
                     Imm32(BaselineFrame::DEBUGGEE), &fail);
 
-  // Allocate both objects in the nursery, so that no post barriers are needed.
-  masm.loadPtr(stubAddress(stackStorageShapeOffset), scratch2);
-  masm.createArrayWithFixedElements(
-      stackStorage, scratch2, scratch1, InvalidReg, stackStorageLength,
-      stackStorageCapacity, 0, 0, stackStorageAllocKind, gc::Heap::Default,
-      &fail);
+  masm.createGeneratorObject(result, callee, scratch0, scratch1, scratch2,
+                             allocKind, stubAddress(shapeOffset),
+                             stubAddress(stackStorageShapeOffset),
+                             stackStorageLength, &fail, AllocSiteInput());
 
-  masm.loadPtr(stubAddress(shapeOffset), scratch2);
-  masm.createPlainGCObject(result, scratch2, scratch1, scratch2,
-                           GetGCKindSlots(allocKind), 0, allocKind,
-                           gc::Heap::Default, &fail, AllocSiteInput());
-
-  masm.storeValue(
-      JSVAL_TYPE_OBJECT, callee,
-      Address(result, AbstractGeneratorObject::offsetOfCalleeOrModuleSlot()));
   masm.loadPtr(Address(baselineFrameReg(),
                        BaselineFrame::reverseOffsetOfEnvironmentChain()),
                scratch1);
   masm.storeValue(
       JSVAL_TYPE_OBJECT, scratch1,
       Address(result, AbstractGeneratorObject::offsetOfEnvironmentChainSlot()));
-  masm.storeValue(
-      JSVAL_TYPE_OBJECT, stackStorage,
-      Address(result, AbstractGeneratorObject::offsetOfStackStorageSlot()));
   masm.jump(&done);
 
   {

@@ -21960,7 +21960,7 @@ void CodeGenerator::visitNewGeneratorObject(LNewGeneratorObject* lir) {
   Register callee = ToRegister(lir->callee());
   Register environmentChain = ToRegister(lir->environmentChain());
   Register output = ToRegister(lir->output());
-  Register stackStorage = ToRegister(lir->temp0());
+  Register temp0 = ToRegister(lir->temp0());
   Register temp1 = ToRegister(lir->temp1());
   Register temp2 = ToRegister(lir->temp2());
   MNewGeneratorObject* mir = lir->mir();
@@ -21973,35 +21973,14 @@ void CodeGenerator::visitNewGeneratorObject(LNewGeneratorObject* lir) {
               environmentChain, ImmPtr(nullptr)),
       StoreRegisterTo(output));
 
-  uint32_t stackStorageLength = mir->stackStorageLength();
-  gc::AllocKind stackStorageAllocKind = GuessArrayGCKind(stackStorageLength);
-  uint32_t stackStorageCapacity =
-      GetGCKindSlots(stackStorageAllocKind) - ObjectElements::VALUES_PER_HEADER;
-  MOZ_ASSERT(stackStorageCapacity >= stackStorageLength);
-
-  // Allocate both objects in the nursery, so that no post barriers are needed.
-  masm.movePtr(ImmGCPtr(mir->stackStorageShape()), temp2);
-  masm.createArrayWithFixedElements(
-      stackStorage, temp2, temp1, InvalidReg, stackStorageLength,
-      stackStorageCapacity, 0, 0, stackStorageAllocKind, gc::Heap::Default,
-      ool->entry(), AllocSiteInput(gc::CatchAllAllocSite::Optimized));
-
-  gc::AllocKind allocKind = mir->allocKind();
-  masm.movePtr(ImmGCPtr(mir->shape()), temp2);
-  masm.createPlainGCObject(output, temp2, temp1, temp2,
-                           GetGCKindSlots(allocKind), 0, allocKind,
-                           gc::Heap::Default, ool->entry(),
-                           AllocSiteInput(gc::CatchAllAllocSite::Optimized));
-
-  masm.storeValue(
-      JSVAL_TYPE_OBJECT, callee,
-      Address(output, AbstractGeneratorObject::offsetOfCalleeOrModuleSlot()));
+  masm.createGeneratorObject(output, callee, temp0, temp1, temp2,
+                             mir->allocKind(), ImmGCPtr(mir->shape()),
+                             ImmGCPtr(mir->stackStorageShape()),
+                             mir->stackStorageLength(), ool->entry(),
+                             AllocSiteInput(gc::CatchAllAllocSite::Optimized));
   masm.storeValue(
       JSVAL_TYPE_OBJECT, environmentChain,
       Address(output, AbstractGeneratorObject::offsetOfEnvironmentChainSlot()));
-  masm.storeValue(
-      JSVAL_TYPE_OBJECT, stackStorage,
-      Address(output, AbstractGeneratorObject::offsetOfStackStorageSlot()));
 
   masm.bind(ool->rejoin());
 }
