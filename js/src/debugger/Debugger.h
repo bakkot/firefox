@@ -143,10 +143,20 @@ class Completion {
  public:
   struct Return {
     explicit Return(const Value& value) : value(value) {}
+    Return(const Value& value, AbstractGeneratorObject* syncGenerator)
+        : value(value), syncGenerator(syncGenerator) {}
     Value value;
+
+    // If set, |value| is the bare value this sync generator returned, which is
+    // reported to the debugger as an iterator result object.
+    AbstractGeneratorObject* syncGenerator = nullptr;
 
     void trace(JSTracer* trc) {
       JS::TraceRoot(trc, &value, "js::Completion::Return::value");
+      if (syncGenerator) {
+        JS::TraceRoot(trc, &syncGenerator,
+                      "js::Completion::Return::syncGenerator");
+      }
     }
   };
 
@@ -178,16 +188,24 @@ class Completion {
   };
 
   struct Yield {
-    Yield(AbstractGeneratorObject* generatorObject, const Value& iteratorResult)
-        : generatorObject(generatorObject), iteratorResult(iteratorResult) {}
+    Yield(AbstractGeneratorObject* generatorObject, const Value& value,
+          bool isBareValue)
+        : generatorObject(generatorObject),
+          value(value),
+          isBareValue(isBareValue) {}
     AbstractGeneratorObject* generatorObject;
-    Value iteratorResult;
+    Value value;
+
+    // True if |value| is a bare value yielded by a sync generator, which is
+    // reported to the debugger as an iterator result object. Otherwise it's
+    // an iterator result object yielded by a sync generator's `yield*`, or
+    // the value yielded by an async generator.
+    bool isBareValue;
 
     void trace(JSTracer* trc) {
       JS::TraceRoot(trc, &generatorObject,
                     "js::Completion::Yield::generatorObject");
-      JS::TraceRoot(trc, &iteratorResult,
-                    "js::Completion::Yield::iteratorResult");
+      JS::TraceRoot(trc, &value, "js::Completion::Yield::value");
     }
   };
 
