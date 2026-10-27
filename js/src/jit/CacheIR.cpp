@@ -17077,6 +17077,69 @@ void GeneratorIRGenerator::trackAttached(const char* name) {
 #endif
 }
 
+#ifdef DEBUG
+// Assert that the objects created by the VM for |generator| match the objects
+// that MacroAssembler::createGeneratorObject would create. |generator| must
+// not have run yet.
+static void AssertGeneratorMatchesStub(AbstractGeneratorObject* generator,
+                                       GeneratorObjectKind kind) {
+  auto assertFixedSlots = [](NativeObject* obj, auto expectedAtOffset) {
+    MOZ_ASSERT(obj->numDynamicSlots() == 0);
+    for (uint32_t i = 0; i < obj->slotSpan(); i++) {
+      MOZ_ASSERT(obj->getFixedSlot(i) ==
+                 expectedAtOffset(NativeObject::getFixedSlotOffset(i)));
+    }
+  };
+
+  PromiseObject* promise =
+      kind == GeneratorObjectKind::AsyncFunction
+          ? generator->as<AsyncFunctionGeneratorObject>().promise()
+          : nullptr;
+
+  assertFixedSlots(generator, [&](size_t offset) -> Value {
+    if (offset == AbstractGeneratorObject::offsetOfCalleeOrModuleSlot()) {
+      return ObjectValue(generator->callee());
+    }
+    if (offset == AbstractGeneratorObject::offsetOfEnvironmentChainSlot()) {
+      return ObjectValue(generator->environmentChain());
+    }
+    if (offset == AbstractGeneratorObject::offsetOfStackStorageSlot()) {
+      return ObjectValue(generator->stackStorage());
+    }
+    if (kind == GeneratorObjectKind::AsyncGenerator) {
+      if (offset == AsyncGeneratorObject::offsetOfStateSlot()) {
+        return Int32Value(AsyncGeneratorObject::State_SuspendedStart);
+      }
+      if (offset == AsyncGeneratorObject::offsetOfQueueOrRequestSlot() ||
+          offset == AsyncGeneratorObject::offsetOfCachedRequestSlot()) {
+        return NullValue();
+      }
+    }
+    if (kind == GeneratorObjectKind::AsyncFunction) {
+      if (offset == AbstractGeneratorObject::offsetOfResumeIndexSlot()) {
+        return Int32Value(AbstractGeneratorObject::RESUME_INDEX_RUNNING);
+      }
+      if (offset == AsyncFunctionGeneratorObject::offsetOfPromiseSlot()) {
+        return ObjectValue(*promise);
+      }
+    }
+    return UndefinedValue();
+  });
+
+  MOZ_ASSERT(generator->stackStorage().getDenseInitializedLength() == 0);
+
+  if (promise) {
+    assertFixedSlots(promise, [](size_t offset) -> Value {
+      if (offset == PromiseObject::offsetOfFlagsSlot()) {
+        return Int32Value(PROMISE_FLAG_DEFAULT_RESOLVING_FUNCTIONS |
+                          PROMISE_FLAG_ASYNC);
+      }
+      return UndefinedValue();
+    });
+  }
+}
+#endif
+
 AttachDecision GeneratorIRGenerator::tryAttachStub() {
   AutoAssertNoPendingException aanpe(cx_);
 
@@ -17129,6 +17192,7 @@ AttachDecision GeneratorIRGenerator::tryAttachStub() {
   }
 
 #ifdef DEBUG
+  AssertGeneratorMatchesStub(generator_, kind);
   writer.assertNoAllocationMetadataBuilder(
       cx_->realm()->addressOfMetadataBuilder());
 #endif
