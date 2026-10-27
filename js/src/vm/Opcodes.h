@@ -2229,9 +2229,10 @@
      * runs instructions in it. Once `gen` returns or yields, its return value
      * is pushed to this frame's stack and execution continues in this script.
      *
-     * This instruction is emitted only for the `resumeGenerator` self-hosting
-     * intrinsic. It is used in the implementation of
-     * `%GeneratorPrototype%.next`, `.throw`, and `.return`.
+     * This instruction is emitted for the `resumeGenerator` self-hosting
+     * intrinsic, which is used in the implementation of
+     * `%GeneratorPrototype%.next`, `.throw`, and `.return`. It is also emitted
+     * by `yield*` in sync generators, to resume an inner generator directly.
      *
      * `gen` must be a suspended generator object. `resumeKind` must be in
      * range for `GeneratorResumeKind`.

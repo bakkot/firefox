@@ -6910,6 +6910,287 @@ bool BytecodeEmitter::emitAwaitInScope(EmitterScope& currentScope) {
   return true;
 }
 
+bool BytecodeEmitter::emitYieldStarForwardingLoop(JumpList* toGeneric,
+                                                  JumpList* done) {
+  MOZ_ASSERT(!sc->asSuspendableContext()->isAsync());
+
+  //                [stack] NEXT ITER RECEIVED RESUMEKIND
+  const int32_t startDepth = bytecodeSection().stackDepth();
+
+  // A generator from another realm has a different %GeneratorPrototype%.next.
+  if (!emitDupAt(3)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND NEXT
+    return false;
+  }
+  if (!emitAtomOp(JSOp::GetIntrinsic,
+                  TaggedParserAtomIndex::WellKnown::GeneratorNext())) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND NEXT GENERATORNEXT
+    return false;
+  }
+  if (!emit1(JSOp::StrictEq)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND IS_GENERATORNEXT
+    return false;
+  }
+  if (!emitJump(JSOp::JumpIfFalse, toGeneric)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+
+  LoopControl loopInfo(this, StatementKind::YieldStar);
+  if (!loopInfo.emitLoopHead(this, Nothing())) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+
+  // Throw and Return completions are handled by the generic loop.
+  if (!emit1(JSOp::Dup)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND RESUMEKIND
+    return false;
+  }
+  if (!emitPushResumeKind(GeneratorResumeKind::Next)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND RESUMEKIND NORMAL
+    return false;
+  }
+  if (!emit1(JSOp::StrictEq)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND IS_NORMAL
+    return false;
+  }
+  if (!emitJump(JSOp::JumpIfFalse, toGeneric)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+
+  // Other code may have resumed or closed ITER since the last round, or it may
+  // be running. GeneratorNext handles those cases.
+  if (!emitAtomOp(JSOp::GetIntrinsic,
+                  TaggedParserAtomIndex::WellKnown::IsSuspendedGenerator())) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND ISSUSPENDED
+    return false;
+  }
+  if (!emit1(JSOp::Undefined)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND ISSUSPENDED UNDEFINED
+    return false;
+  }
+  if (!emitDupAt(4)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND ISSUSPENDED UNDEFINED
+    //              [stack]   ITER
+    return false;
+  }
+  if (!emitCall(JSOp::Call, 1)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND IS_SUSPENDED
+    return false;
+  }
+  if (!emitJump(JSOp::JumpIfFalse, toGeneric)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+  if (!emit1(JSOp::Pop)) {
+    //              [stack] NEXT ITER RECEIVED
+    return false;
+  }
+
+  // Like GeneratorNext, close ITER if it throws.
+  TryEmitter tryCatch(this, TryEmitter::Kind::TryCatch,
+                      TryEmitter::ControlKind::NonSyntactic);
+  if (!tryCatch.emitTry()) {
+    //              [stack] NEXT ITER RECEIVED
+    return false;
+  }
+  if (!emitDupAt(1)) {
+    //              [stack] NEXT ITER RECEIVED ITER
+    return false;
+  }
+  if (!emit1(JSOp::Swap)) {
+    //              [stack] NEXT ITER ITER RECEIVED
+    return false;
+  }
+  if (!emitPushResumeKind(GeneratorResumeKind::Next)) {
+    //              [stack] NEXT ITER ITER RECEIVED RESUMEKIND
+    return false;
+  }
+  if (!emit1(JSOp::Resume)) {
+    //              [stack] NEXT ITER RVAL
+    return false;
+  }
+  if (!tryCatch.emitCatch(TryEmitter::ExceptionStack::Yes)) {
+    //              [stack] NEXT ITER RECEIVED EXCEPTION STACK
+    return false;
+  }
+  if (!emitAtomOp(JSOp::GetIntrinsic,
+                  TaggedParserAtomIndex::WellKnown::GeneratorSetClosed())) {
+    //              [stack] NEXT ITER RECEIVED EXCEPTION STACK SETCLOSED
+    return false;
+  }
+  if (!emit1(JSOp::Undefined)) {
+    //              [stack] NEXT ITER RECEIVED EXCEPTION STACK SETCLOSED
+    //              [stack]   UNDEFINED
+    return false;
+  }
+  if (!emitDupAt(5)) {
+    //              [stack] NEXT ITER RECEIVED EXCEPTION STACK SETCLOSED
+    //              [stack]   UNDEFINED ITER
+    return false;
+  }
+  if (!emitCall(JSOp::Call, 1)) {
+    //              [stack] NEXT ITER RECEIVED EXCEPTION STACK UNDEFINED
+    return false;
+  }
+  if (!emit1(JSOp::Pop)) {
+    //              [stack] NEXT ITER RECEIVED EXCEPTION STACK
+    return false;
+  }
+  if (!emit1(JSOp::ThrowWithStack)) {
+    //              [stack] NEXT ITER RECEIVED
+    return false;
+  }
+  if (!tryCatch.emitEnd()) {
+    //              [stack] NEXT ITER RVAL
+    return false;
+  }
+
+  // ITER's resume index says what RVAL is (see Generator.js).
+  if (!emitAtomOp(
+          JSOp::GetIntrinsic,
+          TaggedParserAtomIndex::WellKnown::UnsafeGetInt32FromReservedSlot())) {
+    //              [stack] NEXT ITER RVAL GETSLOT
+    return false;
+  }
+  if (!emit1(JSOp::Undefined)) {
+    //              [stack] NEXT ITER RVAL GETSLOT UNDEFINED
+    return false;
+  }
+  if (!emitDupAt(3)) {
+    //              [stack] NEXT ITER RVAL GETSLOT UNDEFINED ITER
+    return false;
+  }
+  if (!emitNumberOp(GENERATOR_RESUME_INDEX_SLOT)) {
+    //              [stack] NEXT ITER RVAL GETSLOT UNDEFINED ITER SLOT
+    return false;
+  }
+  if (!emitCall(JSOp::Call, 2)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX
+    return false;
+  }
+  if (!emit1(JSOp::Dup)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX RESUMEINDEX
+    return false;
+  }
+  if (!emitNumberOp(RESUMEINDEX_ITER_RESULT_TAG)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX RESUMEINDEX TAG
+    return false;
+  }
+  if (!emit1(JSOp::Lt)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX IS_BARE_VALUE
+    return false;
+  }
+  JumpList notBareValue;
+  if (!emitJump(JSOp::JumpIfFalse, &notBareValue)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX
+    return false;
+  }
+
+  // ITER yielded a bare value. Yield it onward.
+  if (!emit1(JSOp::Pop)) {
+    //              [stack] NEXT ITER VALUE
+    return false;
+  }
+  if (!emitGetDotGeneratorInInnermostScope()) {
+    //              [stack] NEXT ITER VALUE GENOBJ
+    return false;
+  }
+  if (!emitYieldOp(JSOp::Yield)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+  if (!emitJump(JSOp::Goto, &loopInfo.continues)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+
+  bytecodeSection().setStackDepth(startDepth);
+  if (!emitJumpTargetAndPatch(notBareValue)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX
+    return false;
+  }
+  if (!emitNumberOp(AbstractGeneratorObject::RESUME_INDEX_CLOSED)) {
+    //              [stack] NEXT ITER RVAL RESUMEINDEX CLOSED
+    return false;
+  }
+  if (!emit1(JSOp::StrictEq)) {
+    //              [stack] NEXT ITER RVAL IS_CLOSED
+    return false;
+  }
+  JumpList returned;
+  if (!emitJump(JSOp::JumpIfTrue, &returned)) {
+    //              [stack] NEXT ITER RVAL
+    return false;
+  }
+
+  // ITER yielded an iterator result object from its own `yield*`. Check it
+  // for `done` like the generic loop, and otherwise yield it as-is.
+  if (!emit1(JSOp::Dup)) {
+    //              [stack] NEXT ITER RESULT RESULT
+    return false;
+  }
+  if (!emitAtomOp(JSOp::GetProp, TaggedParserAtomIndex::WellKnown::done())) {
+    //              [stack] NEXT ITER RESULT DONE
+    return false;
+  }
+  JumpList resultDone;
+  if (!emitJump(JSOp::JumpIfTrue, &resultDone)) {
+    //              [stack] NEXT ITER RESULT
+    return false;
+  }
+  if (!emitGetDotGeneratorInInnermostScope()) {
+    //              [stack] NEXT ITER RESULT GENOBJ
+    return false;
+  }
+  if (!emitYieldOp(JSOp::Yield, /* yieldsIterResult = */ true)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+
+  if (!loopInfo.emitContinueTarget(this)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+  if (!loopInfo.emitLoopEnd(this, JSOp::Goto, TryNoteKind::Loop)) {
+    //              [stack] NEXT ITER RECEIVED RESUMEKIND
+    return false;
+  }
+
+  bytecodeSection().setStackDepth(startDepth - 1);
+  if (!emitJumpTargetAndPatch(resultDone)) {
+    //              [stack] NEXT ITER RESULT
+    return false;
+  }
+  if (!emitAtomOp(JSOp::GetProp, TaggedParserAtomIndex::WellKnown::value())) {
+    //              [stack] NEXT ITER VALUE
+    return false;
+  }
+
+  // ITER returned RVAL.
+  if (!emitJumpTargetAndPatch(returned)) {
+    //              [stack] NEXT ITER VALUE
+    return false;
+  }
+  if (!emit2(JSOp::Unpick, 2)) {
+    //              [stack] VALUE NEXT ITER
+    return false;
+  }
+  if (!emitPopN(2)) {
+    //              [stack] VALUE
+    return false;
+  }
+  if (!emitJump(JSOp::Goto, done)) {
+    //              [stack] VALUE
+    return false;
+  }
+
+  bytecodeSection().setStackDepth(startDepth);
+  return true;
+}
+
 // ES2019 draft rev 49b781ec80117b60f73327ef3054703a3111e40c
 // 14.4.14 Runtime Semantics: Evaluation
 // YieldExpression : yield* AssignmentExpression
@@ -6925,51 +7206,6 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
   IteratorKind iterKind = sc->asSuspendableContext()->isAsync()
                               ? IteratorKind::Async
                               : IteratorKind::Sync;
-  // Sync generators step the inner iterator with GeneratorYieldStarNext, which
-  // can return a sentinel along with a value in globalYieldStarStash. Pop the
-  // sentinel, then read and clear the stash.
-  auto emitTakeYieldStarStash = [this]() {
-    if (!emit1(JSOp::Pop)) {
-      //            [stack] ...
-      return false;
-    }
-    if (!emitAtomOp(JSOp::GetIntrinsic,
-                    TaggedParserAtomIndex::WellKnown::globalYieldStarStash())) {
-      //            [stack] ... STASH
-      return false;
-    }
-    if (!emit1(JSOp::Dup)) {
-      //            [stack] ... STASH STASH
-      return false;
-    }
-    if (!emit1(JSOp::Zero)) {
-      //            [stack] ... STASH STASH 0
-      return false;
-    }
-    if (!emitElemOpBase(JSOp::GetElem)) {
-      //            [stack] ... STASH VALUE
-      return false;
-    }
-    if (!emit1(JSOp::Swap)) {
-      //            [stack] ... VALUE STASH
-      return false;
-    }
-    if (!emit1(JSOp::Zero)) {
-      //            [stack] ... VALUE STASH 0
-      return false;
-    }
-    if (!emit1(JSOp::Undefined)) {
-      //            [stack] ... VALUE STASH 0 UNDEFINED
-      return false;
-    }
-    if (!emitElemOpBase(sc->strict() ? JSOp::StrictSetElem : JSOp::SetElem)) {
-      //            [stack] ... VALUE UNDEFINED
-      return false;
-    }
-    return emit1(JSOp::Pop);
-    //              [stack] ... VALUE
-  };
-
   // Steps 2-5.
   if (!emitTree(iter)) {
     //              [stack] ITERABLE
@@ -7001,12 +7237,23 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
   const int32_t startDepth = bytecodeSection().stackDepth();
   MOZ_ASSERT(startDepth >= 4);
 
+  // Sync generators first try to forward values from a same-realm inner
+  // generator without iterator result objects. That hands over to the generic
+  // loop below if it can't, or evaluates the whole `yield*`.
+  JumpList toGeneric;
+  JumpList forwardingDone;
+  if (iterKind == IteratorKind::Sync) {
+    if (!emitYieldStarForwardingLoop(&toGeneric, &forwardingDone)) {
+      return false;
+    }
+    if (!emitJumpTargetAndPatch(toGeneric)) {
+      //            [stack] NEXT ITER RECEIVED RESUMEKIND
+      return false;
+    }
+  }
+
   // Step 7 is a loop.
   LoopControl loopInfo(this, StatementKind::YieldStar);
-
-  // In sync generators, GeneratorYieldStarNext can produce a bare value, which
-  // is yielded by a separate, untagged JSOp::Yield.
-  JumpList yieldValue;
   if (!loopInfo.emitLoopHead(this, Nothing())) {
     //              [stack] NEXT ITER RECEIVED RESUMEKIND
     return false;
@@ -7037,128 +7284,41 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
       return false;
     }
 
-    if (iterKind == IteratorKind::Sync) {
-      // Steps 7.a.i-iii.
-      if (!emitAtomOp(
-              JSOp::GetIntrinsic,
-              TaggedParserAtomIndex::WellKnown::GeneratorYieldStarNext())) {
-        //          [stack] NEXT ITER RECEIVED STEP
-        return false;
-      }
-      if (!emit1(JSOp::Undefined)) {
-        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED
-        return false;
-      }
-      if (!emitDupAt(3)) {
-        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED ITER
-        return false;
-      }
-      if (!emitDupAt(5)) {
-        //          [stack] NEXT ITER RECEIVED STEP UNDEFINED ITER NEXT
-        return false;
-      }
-      if (!emit2(JSOp::Pick, 4)) {
-        //          [stack] NEXT ITER STEP UNDEFINED ITER NEXT RECEIVED
-        return false;
-      }
-      if (!emitCall(JSOp::Call, 3, iter)) {
-        //          [stack] NEXT ITER VALUE
-        return false;
-      }
+    // Step 7.a.i.
+    // result = iter.next(received)
+    if (!emit2(JSOp::Unpick, 2)) {
+      //            [stack] RECEIVED NEXT ITER
+      return false;
+    }
+    if (!emit1(JSOp::Dup2)) {
+      //            [stack] RECEIVED NEXT ITER NEXT ITER
+      return false;
+    }
+    if (!emit2(JSOp::Pick, 4)) {
+      //            [stack] NEXT ITER NEXT ITER RECEIVED
+      return false;
+    }
+    if (!emitCall(JSOp::Call, 1, iter)) {
+      //            [stack] NEXT ITER RESULT
+      return false;
+    }
 
-      // The inner generator returned.
-      if (!emit1(JSOp::Dup)) {
-        //          [stack] NEXT ITER VALUE VALUE
-        return false;
-      }
-      if (!emitAtomOp(
-              JSOp::GetIntrinsic,
-              TaggedParserAtomIndex::WellKnown::IterationDoneSentinel())) {
-        //          [stack] NEXT ITER VALUE VALUE SENTINEL
-        return false;
-      }
-      if (!emit1(JSOp::StrictEq)) {
-        //          [stack] NEXT ITER VALUE IS_DONE
-        return false;
-      }
-      if (!emitJump(JSOp::JumpIfTrue, &loopInfo.breaks)) {
-        //          [stack] NEXT ITER VALUE
-        return false;
-      }
-
-      // An inner iterator result object, which is handled by the shared tail
-      // below. Otherwise, a bare value to yield.
-      if (!emit1(JSOp::Dup)) {
-        //          [stack] NEXT ITER VALUE VALUE
-        return false;
-      }
-      if (!emitAtomOp(
-              JSOp::GetIntrinsic,
-              TaggedParserAtomIndex::WellKnown::YieldStarIterResultSentinel())) {
-        //          [stack] NEXT ITER VALUE VALUE SENTINEL
-        return false;
-      }
-      if (!emit1(JSOp::StrictEq)) {
-        //          [stack] NEXT ITER VALUE IS_ITER_RESULT
-        return false;
-      }
-      InternalIfEmitter ifIterResult(this);
-      if (!ifIterResult.emitThenElse()) {
-        //          [stack] NEXT ITER VALUE
-        return false;
-      }
-      if (!emitTakeYieldStarStash()) {
-        //          [stack] NEXT ITER RESULT
-        return false;
-      }
-      if (!ifIterResult.emitElse()) {
-        //          [stack] NEXT ITER VALUE
-        return false;
-      }
-      if (!emitJump(JSOp::Goto, &yieldValue)) {
-        //          [stack] NEXT ITER VALUE
-        return false;
-      }
-      if (!ifIterResult.emitEnd()) {
-        //          [stack] NEXT ITER RESULT
-        return false;
-      }
-    } else {
-      // Step 7.a.i.
-      // result = iter.next(received)
-      if (!emit2(JSOp::Unpick, 2)) {
-        //          [stack] RECEIVED NEXT ITER
-        return false;
-      }
-      if (!emit1(JSOp::Dup2)) {
-        //          [stack] RECEIVED NEXT ITER NEXT ITER
-        return false;
-      }
-      if (!emit2(JSOp::Pick, 4)) {
-        //          [stack] NEXT ITER NEXT ITER RECEIVED
-        return false;
-      }
-      if (!emitCall(JSOp::Call, 1, iter)) {
-        //          [stack] NEXT ITER RESULT
-        return false;
-      }
-
-      // Step 7.a.ii.
+    // Step 7.a.ii.
+    if (iterKind == IteratorKind::Async) {
       if (!emitAwaitInInnermostScope()) {
-        //          [stack] NEXT ITER RESULT
-        return false;
-      }
-
-      // Step 7.a.iii.
-      if (!emitCheckIsObj(CheckIsObjectKind::IteratorNext)) {
         //          [stack] NEXT ITER RESULT
         return false;
       }
     }
 
+    // Step 7.a.iii.
+    if (!emitCheckIsObj(CheckIsObjectKind::IteratorNext)) {
+      //            [stack] NEXT ITER RESULT
+      return false;
+    }
+
     // Bytecode for steps 7.a.iv-vii is emitted after the ifKind if-else because
-    // it's shared with other branches. In sync generators, only inner iterator
-    // result objects get there.
+    // it's shared with other branches.
   }
 
   // Step 7.b. Check for Throw completion.
@@ -7482,34 +7642,6 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
     //              [stack] NEXT ITER RVAL RESUMEKIND
     return false;
   }
-
-  if (iterKind == IteratorKind::Sync) {
-    JumpList afterYield;
-    if (!emitJump(JSOp::Goto, &afterYield)) {
-      //            [stack] NEXT ITER RVAL RESUMEKIND
-      return false;
-    }
-
-    // Yield a bare value from GeneratorYieldStarNext.
-    bytecodeSection().setStackDepth(startDepth - 1);
-    if (!emitJumpTargetAndPatch(yieldValue)) {
-      //            [stack] NEXT ITER VALUE
-      return false;
-    }
-    if (!emitGetDotGeneratorInInnermostScope()) {
-      //            [stack] NEXT ITER VALUE GENOBJ
-      return false;
-    }
-    if (!emitYieldOp(JSOp::Yield)) {
-      //            [stack] NEXT ITER RVAL RESUMEKIND
-      return false;
-    }
-
-    if (!emitJumpTargetAndPatch(afterYield)) {
-      //            [stack] NEXT ITER RVAL RESUMEKIND
-      return false;
-    }
-  }
   if (!loopInfo.emitLoopEnd(this, JSOp::Goto, TryNoteKind::Loop)) {
     //              [stack] NEXT ITER RVAL RESUMEKIND
     return false;
@@ -7533,46 +7665,13 @@ bool BytecodeEmitter::emitYieldStar(ParseNode* iter) {
     //              [stack] RESULT
     return false;
   }
+  if (!emitAtomOp(JSOp::GetProp, TaggedParserAtomIndex::WellKnown::value())) {
+    //              [stack] VALUE
+    return false;
+  }
+
   if (iterKind == IteratorKind::Sync) {
-    // RESULT is IterationDoneSentinel if the inner generator returned.
-    if (!emit1(JSOp::Dup)) {
-      //            [stack] RESULT RESULT
-      return false;
-    }
-    if (!emitAtomOp(JSOp::GetIntrinsic,
-                    TaggedParserAtomIndex::WellKnown::IterationDoneSentinel())) {
-      //            [stack] RESULT RESULT SENTINEL
-      return false;
-    }
-    if (!emit1(JSOp::StrictEq)) {
-      //            [stack] RESULT IS_DONE
-      return false;
-    }
-    InternalIfEmitter ifDone(this);
-    if (!ifDone.emitThenElse()) {
-      //            [stack] RESULT
-      return false;
-    }
-    if (!emitTakeYieldStarStash()) {
-      //            [stack] VALUE
-      return false;
-    }
-    if (!ifDone.emitElse()) {
-      //            [stack] RESULT
-      return false;
-    }
-    if (!emitAtomOp(JSOp::GetProp,
-                    TaggedParserAtomIndex::WellKnown::value())) {
-      //            [stack] VALUE
-      return false;
-    }
-    if (!ifDone.emitEnd()) {
-      //            [stack] VALUE
-      return false;
-    }
-  } else {
-    if (!emitAtomOp(JSOp::GetProp,
-                    TaggedParserAtomIndex::WellKnown::value())) {
+    if (!emitJumpTargetAndPatch(forwardingDone)) {
       //            [stack] VALUE
       return false;
     }

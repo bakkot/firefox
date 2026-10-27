@@ -743,6 +743,13 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
   // index is tagged with RESUMEINDEX_ITER_RESULT_TAG.
   [[nodiscard]] bool emitYieldOp(JSOp op, bool yieldsIterResult = false);
   [[nodiscard]] bool emitYieldStar(ParseNode* iter);
+  // The fast path of a sync generator's `yield*`, for a same-realm generator
+  // using the original %GeneratorPrototype%.next. Resumes it directly and
+  // yields its bare values onward. Jumps to |toGeneric| with
+  // NEXT ITER RECEIVED RESUMEKIND on the stack, at the start of a round, if it
+  // can't be used, or to |done| with the value of the `yield*` expression.
+  [[nodiscard]] bool emitYieldStarForwardingLoop(JumpList* toGeneric,
+                                                 JumpList* done);
   [[nodiscard]] bool emitAwaitInInnermostScope() {
     return emitAwaitInScope(*innermostEmitterScope());
   }

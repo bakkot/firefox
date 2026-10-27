@@ -1696,9 +1696,20 @@ class DebuggerScript::IsInCatchScopeMatcher {
     };
     auto notes = script->trynotes();
 
+    // A sync generator's `yield*` resumes inner generators in a synthetic
+    // catch block, which closes the inner generator when it throws. Like the
+    // for-of case below, the debugger should ignore it. It's the innermost
+    // Catch trynote around the JSOp::Resume.
+    bool skipResumeCatch = JSOp(*script->offsetToPC(offset_)) == JSOp::Resume;
+
     for (size_t i = 0; i < notes.size(); i++) {
       const TryNote& tn = notes[i];
       if (tn.kind() != TryNoteKind::Catch || !inRange(tn)) {
+        continue;
+      }
+
+      if (skipResumeCatch) {
+        skipResumeCatch = false;
         continue;
       }
 

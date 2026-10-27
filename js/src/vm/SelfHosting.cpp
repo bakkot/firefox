@@ -654,22 +654,6 @@ static bool intrinsic_ArrayIteratorPrototypeOptimizable(JSContext* cx,
   return true;
 }
 
-static bool intrinsic_CreateTenuredHolder(JSContext* cx, unsigned argc,
-                                          Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 0);
-
-  ArrayObject* result = NewDenseFullyAllocatedArray(cx, 1, TenuredObject);
-  if (!result) {
-    return false;
-  }
-  result->setDenseInitializedLength(1);
-  result->initDenseElement(0, UndefinedValue());
-
-  args.rval().setObject(*result);
-  return true;
-}
-
 static bool intrinsic_DebuggerObservesNativeCall(JSContext* cx, unsigned argc,
                                                  Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -1625,7 +1609,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
           intrinsic_CreateMapIterationResultPair, 0, 0),
     JS_FN("CreateSetIterationResult", intrinsic_CreateSetIterationResult, 0, 0),
     JS_FN("CreateSuppressedError", intrinsic_CreateSuppressedError, 2, 0),
-    JS_FN("CreateTenuredHolder", intrinsic_CreateTenuredHolder, 0, 0),
     JS_FN("CreateUniqueTenuredObject", intrinsic_CreateUniqueTenuredObject,
           0, 0),
     JS_INLINABLE_FN("DebuggerObservesNativeCall",

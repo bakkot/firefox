@@ -112,6 +112,36 @@ for (var i = 0; i < 100; i++) {
   o.next = () => ({ done: true, value: "overridden" });
   assertEq(results((function*() { return yield* o; })()),
            '{"value":"overridden","done":true}');
+
+  // The inner generator is resumed or closed by other code between rounds.
+  var in1 = deep(0);
+  var out1 = (function*() { return yield* in1; })();
+  assertEq(JSON.stringify(out1.next()), '{"value":1,"done":false}');
+  assertEq(JSON.stringify(in1.next()), '{"value":2,"done":false}');
+  assertEq(results(out1), '{"value":"deep","done":true}');
+  var in2 = deep(0);
+  var out2 = (function*() { return yield* in2; })();
+  out2.next();
+  in2.return("closed");
+  assertEq(results(out2), '{"done":true}');
+
+  // Bare values and passed-through iterator results alternate.
+  function* walk(n) { yield n.v; yield* n.children; for (var c of n.kids) yield* walk(c); }
+  var tree = { v: 1, children: [2, 3], kids: [{ v: 4, children: [5], kids: [] }] };
+  assertEq([...(function*() { yield* walk(tree); })()].join(), "1,2,3,4,5");
+
+  // `done` is read at every level, and can change between reads.
+  var reads = 0;
+  var flip = {
+    [Symbol.iterator]() { return this; },
+    next() {
+      return { get done() { return reads++ > 0; }, value: "flipped" };
+    },
+  };
+  function* f1() { return yield* flip; }
+  assertEq(results((function*() { return yield* f1(); })()),
+           '{"value":"flipped","done":true}');
+  assertEq(reads, 2);
 }
 
 // Generators from another realm.
@@ -121,4 +151,13 @@ for (var g of [newGlobal({ sameCompartmentAs: this }), newGlobal({ newCompartmen
     var outer = (function*() { return yield* inner; })();
     assertEq(results(outer), '{"value":1,"done":false},{"value":2,"done":true}');
   }
+}
+
+// A generator from another realm with this realm's `next`.
+var other = newGlobal({ sameCompartmentAs: this });
+for (var i = 0; i < 50; i++) {
+  var inner = other.eval("(function*() { yield 1; return 2; })()");
+  inner.next = (function*() {})().next;
+  var outer = (function*() { return yield* inner; })();
+  assertEq(results(outer), '{"value":1,"done":false},{"value":2,"done":true}');
 }

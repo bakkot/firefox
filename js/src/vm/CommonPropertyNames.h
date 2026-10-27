@@ -189,7 +189,8 @@
   MACRO_(fulfilled, "fulfilled")                                               \
   MACRO_(gcCycleNumber, "gcCycleNumber")                                       \
   MACRO_(Generator, "Generator")                                               \
-  MACRO_(GeneratorYieldStarNext, "GeneratorYieldStarNext")                     \
+  MACRO_(GeneratorNext, "GeneratorNext")                                       \
+  MACRO_(GeneratorSetClosed, "GeneratorSetClosed")                             \
   MACRO_(get, "get")                                                           \
   IF_DECORATORS(MACRO_(getter, "getter"))                                      \
   MACRO_(GetAggregateError, "GetAggregateError")                               \
@@ -210,7 +211,6 @@
   MACRO_(getTimeZones, "getTimeZones")                                         \
   MACRO_(GetTypeError, "GetTypeError")                                         \
   MACRO_(getWeekInfo, "getWeekInfo")                                           \
-  MACRO_(globalYieldStarStash, "globalYieldStarStash")                         \
   MACRO_(global, "global")                                                     \
   MACRO_(globalThis, "globalThis")                                             \
   MACRO_(granularity, "granularity")                                           \
@@ -262,6 +262,7 @@
   MACRO_(isFinite, "isFinite")                                                 \
   MACRO_(isNaN, "isNaN")                                                       \
   MACRO_(IsNullOrUndefined, "IsNullOrUndefined")                               \
+  MACRO_(IsSuspendedGenerator, "IsSuspendedGenerator")                         \
   MACRO_(iso8601, "iso8601")                                                   \
   MACRO_(isRawJSON, "isRawJSON")                                               \
   MACRO_(IterationDoneSentinel, "IterationDoneSentinel")                       \
@@ -561,7 +562,6 @@
   MACRO_(years, "years")                                                       \
   MACRO_(yearsDisplay, "yearsDisplay")                                         \
   MACRO_(yield, "yield")                                                       \
-  MACRO_(YieldStarIterResultSentinel, "YieldStarIterResultSentinel")           \
   MACRO_(zero, "zero")                                                         \
   MACRO_(zip, "zip")                                                           \
   MACRO_(zipKeyed, "zipKeyed")                                                 \

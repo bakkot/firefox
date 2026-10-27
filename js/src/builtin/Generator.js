@@ -9,6 +9,8 @@
 // GENERATOR_RESUME_INDEX_ITER_RESULT_TAG. A closed generator's resume index is
 // GENERATOR_RESUME_INDEX_CLOSED. Both are at least
 // GENERATOR_RESUME_INDEX_ITER_RESULT_TAG, so a plain yield is a single compare.
+// BytecodeEmitter::emitYieldStarForwardingLoop resumes inner generators
+// directly and checks their resume index in the same way.
 //
 // Keep the iterator result object case in a separate call: it's cold for most
 // call sites, which lets Warp prune it so that the returned object doesn't
@@ -17,69 +19,9 @@ function GeneratorYieldedIterResult(result) {
   return result;
 }
 
-// Unique objects returned by GeneratorYieldStarNext (and, for
-// IterationDoneSentinel, by IteratorStepValue and the *IteratorStep helpers).
-// Never exposed to content.
+// Unique object returned by IteratorStepValue and the *IteratorStep helpers
+// to signal completion. Never exposed to content.
 var IterationDoneSentinel = CreateUniqueTenuredObject();
-var YieldStarIterResultSentinel = CreateUniqueTenuredObject();
-
-// The value that goes with the sentinel GeneratorYieldStarNext returned, in
-// element 0. Read back and cleared immediately by the `yield*` bytecode (see
-// BytecodeEmitter::emitYieldStar). This must be tenured so that Warp can bake
-// it into compiled code.
-var globalYieldStarStash = CreateTenuredHolder();
-
-// The "next" step of `yield*` in a sync generator: calls |next| on the inner
-// iterator |iter| with |received|. Returns one of:
-//
-// - IterationDoneSentinel, if |iter| is a generator that returned. Its return
-//   value is in globalYieldStarStash.
-// - YieldStarIterResultSentinel, with the inner iterator result object in
-//   globalYieldStarStash. The `yield*` bytecode checks it for `done` as usual,
-//   and otherwise yields it as-is.
-// - Otherwise, a bare value for the outer generator to yield.
-//
-// When |iter| is a suspended same-realm generator using the original
-// GeneratorNext, it is resumed directly and a bare yielded value is passed
-// through. This skips the inner iterator result object, which is unobservable
-// because GeneratorNext would have created a fresh plain object.
-function GeneratorYieldStarNext(iter, next, received) {
-  var result;
-  if (
-    next === GeneratorNext &&
-    IsSuspendedGenerator(iter) &&
-    !DebuggerObservesNativeCall()
-  ) {
-    try {
-      result = resumeGenerator(iter, received, "next");
-    } catch (e) {
-      GeneratorSetClosed(iter);
-      throw e;
-    }
-
-    var resumeIndex = UnsafeGetInt32FromReservedSlot(iter, GENERATOR_RESUME_INDEX_SLOT);
-    if (resumeIndex < GENERATOR_RESUME_INDEX_ITER_RESULT_TAG) {
-      return result;
-    }
-    if (resumeIndex === GENERATOR_RESUME_INDEX_CLOSED) {
-      globalYieldStarStash[0] = result;
-      return IterationDoneSentinel;
-    }
-
-    // |iter| itself yielded an inner result object with `yield*`, which must
-    // be passed through as-is.
-    assert(IsObject(result), "yield* only yields objects");
-  } else {
-    result = callContentFunction(next, iter, received);
-    if (!IsObject(result)) {
-      ThrowTypeError(JSMSG_ITER_METHOD_RETURNED_PRIMITIVE, "next");
-    }
-  }
-
-  globalYieldStarStash[0] = result;
-  return YieldStarIterResultSentinel;
-}
-SetIsInlinableLargeFunction(GeneratorYieldStarNext);
 
 function GeneratorNext(val) {
   // Call GeneratorNextSlow for uncommon cases so that GeneratorNext stays small
