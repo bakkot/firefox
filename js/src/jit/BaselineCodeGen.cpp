@@ -6684,6 +6684,11 @@ bool BaselineCodeGen<Handler>::emit_Resume() {
   Register callerStackPtr = regs.takeAny();
   masm.computeEffectiveAddress(frame.addressOfStackValue(-1), callerStackPtr);
 
+  // The callee doesn't pop the Values pushed below, so the stack pointer is
+  // restored from here after the call. The Baseline Interpreter can't compute
+  // it from the frame pointer because it doesn't know the stack depth.
+  masm.storePtr(callerStackPtr, frame.addressOfScratchValue());
+
   // The pushed argument Values are the formals (all |undefined|) and the resume
   // args stored after the formals.
   Register scratch1 = regs.takeAny();
@@ -6782,8 +6787,7 @@ bool BaselineCodeGen<Handler>::emit_Resume() {
   }
 
   // Restore Stack pointer
-  masm.computeEffectiveAddress(frame.addressOfStackValue(-1),
-                               masm.getStackPointer());
+  masm.loadStackPtr(frame.addressOfScratchValue());
 
   // After the generator returns, we restore the stack pointer, switch back to
   // the current realm, push the return value, and we're done.
