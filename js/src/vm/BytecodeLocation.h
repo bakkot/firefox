@@ -327,7 +327,7 @@ class BytecodeLocation {
   }
   uint32_t getResumeIndex() const {
     MOZ_ASSERT(is(JSOp::InitialYield) || is(JSOp::Yield) || is(JSOp::Await));
-    return GET_RESUMEINDEX(rawBytecode_);
+    return GET_SUSPEND_RESUMEINDEX(rawBytecode_);
   }
   uint32_t getTaggedResumeIndex() const {
     MOZ_ASSERT(is(JSOp::InitialYield) || is(JSOp::Yield) || is(JSOp::Await));

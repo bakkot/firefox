@@ -192,13 +192,22 @@ static const uint32_t LOCALNO_LIMIT = 1 << LOCALNO_BITS;
 // value. Suspending stores the operand, tag included, in the generator's
 // resume index slot, so that %GeneratorPrototype% methods can tell the two
 // apart. The tag is masked out wherever the resume index is used as an index.
+// Resume indices of JSOp::InitialYield, JSOp::Yield and JSOp::Await are below
+// it, but JSOp::TableSwitch's can be larger.
 static constexpr uint32_t RESUMEINDEX_ITER_RESULT_TAG = 1 << 23;
 
 static inline uint32_t GET_RESUMEINDEX(const jsbytecode* pc) {
+  return GET_UINT24(pc);
+}
+
+// The resume index operand of JSOp::InitialYield, JSOp::Yield or JSOp::Await,
+// without RESUMEINDEX_ITER_RESULT_TAG.
+static inline uint32_t GET_SUSPEND_RESUMEINDEX(const jsbytecode* pc) {
   return GET_UINT24(pc) & ~RESUMEINDEX_ITER_RESULT_TAG;
 }
 
-// The resume index operand including RESUMEINDEX_ITER_RESULT_TAG.
+// The resume index operand of JSOp::InitialYield, JSOp::Yield or JSOp::Await,
+// including RESUMEINDEX_ITER_RESULT_TAG.
 static inline uint32_t GET_TAGGED_RESUMEINDEX(const jsbytecode* pc) {
   return GET_UINT24(pc);
 }

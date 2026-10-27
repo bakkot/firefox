@@ -2097,9 +2097,12 @@ MOZ_NEVER_INLINE bool BytecodeEmitter::emitSwitch(SwitchStatement* switchStmt) {
   return true;
 }
 
-// The top bit of the 24-bit resume index operand is
-// RESUMEINDEX_ITER_RESULT_TAG.
-static constexpr size_t MaxResumeIndex = BitMask(23);
+static constexpr size_t MaxResumeIndex = BitMask(24);
+
+// The top bit of the resume index operand of JSOp::Yield is
+// RESUMEINDEX_ITER_RESULT_TAG, so there are fewer resume indices for
+// suspending ops. They come before the table switch entries.
+static constexpr size_t MaxSuspendResumeIndex = BitMask(23);
 
 bool BytecodeEmitter::checkResumeIndexLimit() {
   static_assert(
@@ -2123,7 +2126,12 @@ bool BytecodeEmitter::checkResumeIndexLimit() {
 
 bool BytecodeEmitter::allocateResumeIndex(BytecodeOffset offset,
                                           uint32_t* resumeIndex) {
+  static_assert(MaxSuspendResumeIndex < RESUMEINDEX_ITER_RESULT_TAG);
   if (!checkResumeIndexLimit()) {
+    return false;
+  }
+  if (bytecodeSection().resumeOffsetList().length() > MaxSuspendResumeIndex) {
+    reportError(nullptr, JSMSG_TOO_MANY_RESUME_INDEXES);
     return false;
   }
   *resumeIndex = bytecodeSection().resumeOffsetList().length();
